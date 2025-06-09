@@ -1,0 +1,97 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{parskip}              % Better paragraph spacing
+\usepackage{setspace}             % For line spacing
+\usepackage{titlesec}             % Control section titles
+\usepackage{enumitem}             % List control
+\usepackage[hidelinks]{hyperref}  % Hyperlinks
+\usepackage{xcolor}               % Colors
+\usepackage{graphicx}             % For potential logos
+
+% Fonts
+\renewcommand{\familydefault}{\sfdefault}
+
+% Title formatting
+\titleformat{\section}{
+  \color{blue!70}\large\bfseries
+}{\thesection}{1em}{}
+\titlespacing*{\section}{0pt}{1.5ex}{1ex}
+
+% Decorative line
+\newcommand{\sectionline}{
+  \nointerlineskip \vspace{1.5ex}
+  \par\noindent\makebox[\linewidth]{\rule{\linewidth}{0.4pt}}
+  \vspace{1ex}
+}
+
+\begin{document}
+\pagestyle{empty}
+
+\begin{center}
+  {\LARGE\bfseries SNAP-TESTER}\\[0.5ex]
+  {\large\itshape On-Device Visual QA for Windows UIs}\\[2ex]
+  {\large\textbf{Team: PIXEL PERFECT}}
+\end{center}
+
+\sectionline
+
+\doublespacing
+
+\section*{Problem Statement}
+Windows applications must look and function correctly across a vast range of display environments—1080p up to 4K, 100\%–200\% DPI, dark and high-contrast themes, multiple languages, and varied window sizes. Conventional CI pipelines catch crashes and functional bugs but \emph{cannot} detect pixel-level visual regressions: unreadable text, poor contrast, overlapping UI elements, or tiny controls that fail accessibility guidelines. Manual review of dozens of variants is slow, error-prone, and unscalable, while cloud-based visual-test services introduce latency, expose proprietary UI captures, and rely on external infrastructure.
+
+\sectionline
+
+\section*{Proposed Solution}
+\textbf{Snap-Tester} is a turnkey, on-device CI plug-in for the Snapdragon X Elite Copilot+ PC that automates \emph{pixel-perfect visual and accessibility QA} without any cloud dependency.  
+
+\medskip
+\noindent\textbf{1. Automated Screenshot Capture}\\
+Leverage existing UI-automation (PowerShell UIA, WinAppDriver, FlaUI) to navigate key screens under each resolution/DPI/theme, saving snapshots in a standardized folder.
+
+\medskip
+\noindent\textbf{2. AI-Powered Audit Pipeline}\\
+\begin{itemize}[leftmargin=*,itemsep=1ex]
+  \item \textbf{Text Detection (BYO Tiny-OCR ONNX)}  
+    A compact OCR model (team-supplied ONNX, compiled via \texttt{qai\_hub compile}) extracts every UI text region and bounding box in tens of milliseconds on the Hexagon NPU.
+  \item \textbf{Control Detection (BYO MobileNet-SSD ONNX)}  
+    A lightweight SSD, fine-tuned on UI controls (buttons, fields, icons), also compiled via AI Hub, locates interactive elements in tens of milliseconds.
+  \item \textbf{Rule-Based Checks (CPU)}  
+    Computes WCAG contrast ratios (minimum 4.5:1) and enforces control dimensions (≥48×48\,dp) directly on pixel data.
+\end{itemize}
+
+\medskip
+\noindent\textbf{3. Actionable Guidance}\\
+Integrate the \textbf{AnythingLLM 1B-parameter QNN} (pre-optimized on AI Hub) to translate numeric failures (e.g. “contrast = 2.8:1 on ‘OK’”) into concise, prioritized fix suggestions (“Use white text for ≥7:1 contrast”) in under 100\,ms.
+
+\medskip
+\noindent\textbf{4. CI Integration \& Reporting}\\
+Runs as a native CI step on one Copilot+ PC; all screenshots and AI inferences remain local. Generates a JSON/HTML report and flags builds with critical regressions—providing comprehensive feedback in under one minute for 50–100 screens.
+
+\sectionline
+
+\section*{Edge-AI \& AI Hub Integration}
+\begin{itemize}[leftmargin=*,itemsep=1ex]
+  \item \textbf{On-Device Inference:} All OCR, control detection, and LLM runs execute on the Hexagon NPU, showcasing real-time edge-AI performance without cloud latency.
+  \item \textbf{AI Hub Models:} Utilizes the \texttt{AnythingLLM} 1B ONNX directly from AI Hub; uses AI Hub’s “Bring Your Own Model” flow to compile our OCR and SSD networks into Hexagon QNN format.
+  \item \textbf{Unified Runtime:} Inference is driven through AI Engine Direct or ONNX Runtime’s QNN Execution Provider, highlighting the complete Snapdragon X edge-AI stack.
+\end{itemize}
+
+\sectionline
+
+\section*{Use-Case Scenarios}
+\begin{itemize}[leftmargin=*,itemsep=1ex]
+  \item \emph{Automotive Infotainment:} Automatically validate day/night and multilingual screens for contrast and layout faults before production.
+  \item \emph{Enterprise Kiosks:} Ensure high-DPI and accessibility theme variants of self-service software remain readable and tappable—without sending images to the cloud.
+  \item \emph{Productivity Suites:} Guard custom skins and dynamic layouts across diverse monitor setups, catching UI regressions early and reducing support tickets.
+\end{itemize}
+
+\sectionline
+
+\section*{Impact}
+Snap-Tester empowers development teams to \emph{shift left} their visual and accessibility testing—catching every pixel-level issue on the same device end-users run and delivering consistent, private QA feedback that scales across all display environments.
+
+\vspace{2ex}
+
+
+\end{document}
