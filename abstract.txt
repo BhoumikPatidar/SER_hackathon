@@ -1,0 +1,63 @@
+TEAM NAME: PIXEL GUARDIANS
+PROJECT TITLE: SNAP-TESTER: ON-DEVICE VISUAL QA FOR WINDOWS UIs
+
+Problem Statement
+Windows applications today must support a vast array of display configurations—1080p to 4K, 100 %–200 % DPI scaling, dark/high-contrast themes, multiple languages and window sizes. While CI pipelines verify functionality (click handlers, dialogs), they cannot catch pixel-level visual regressions: unreadable labels, insufficient contrast, overlapping elements, or controls that shrink below tappable size. Manual review across dozens of screen variants is slow, error-prone, and fails to scale; cloud-based visual-testing services incur latency, expose proprietary UI assets, and depend on external infrastructure.
+
+Innovative Solution
+Snap-Tester is a self-contained CI plug-in for Snapdragon X Elite Copilot+ PCs that automates pixel-perfect visual and accessibility QA—entirely on-device, with no cloud calls. It integrates existing UI-automation scripts to capture screenshots in each display mode, then runs a compact AI pipeline on the Hexagon NPU to audit every rendered frame:
+
+Screenshot Capture
+
+Leverages standard UI-automation tools (PowerShell UIA, WinAppDriver, FlaUI) to navigate key screens and save images under each resolution/DPI/theme combination.
+
+AI-Powered Audit
+
+Text Detection (BYO Tiny-OCR ONNX)
+
+A small OCR model, brought by the team, compiled via qai_hub compile to run on Hexagon.
+
+Extracts every UI text region and its bounding box in tens of milliseconds per frame.
+
+Control Detection (BYO MobileNet-SSD ONNX)
+
+A lightweight Single-Shot Detector fine-tuned on UI controls (buttons, fields, icons), also compiled via AI Hub.
+
+Locates interactive elements in tens of milliseconds, enabling size and overlap checks.
+
+Rule Engine (CPU)
+
+Computes WCAG contrast ratios (requires ≥ 4.5:1) and minimum control dimensions (≥ 48×48 dp) directly on pixels.
+
+Actionable Guidance
+
+Tiny-Llama-1B QNN (AI Hub “AnythingLLM”)
+
+A pre-optimized, 1 billion-parameter ONNX from AI Hub.
+
+Transforms each numeric failure (e.g., “contrast = 2.8:1 on ‘Submit’”) into a brief, prioritized fix suggestion (“Use white text for ≥ 7:1 contrast”) in under 100 ms.
+
+CI Integration & Reporting
+
+Runs in your CI matrix on a single Copilot+ PC; screenshots never leave the machine.
+
+Aggregates results into a clear JSON (or HTML) report and marks the build unstable if any critical visual regressions are found—providing feedback under one minute for typical suites of 50–100 screenshots.
+
+Edge-AI Enhancement & AI Hub Utilization
+
+On-Device Execution: All inference (OCR, detection, LLM) runs on the Hexagon NPU, demonstrating real-time edge-AI performance without cloud dependencies.
+
+AI Hub Models: We integrate the AnythingLLM 1 B-param model directly from AI Hub and use AI Hub’s “Bring Your Own Model” workflow to compile our OCR and SSD ONNX to Hexagon QNN.
+
+Unified Runtime: Inference uses AI Engine Direct or ONNX Runtime’s QNN Execution Provider, highlighting the complete AI Hub and Snapdragon X edge-AI stack.
+
+Use-Case Scenarios
+
+Automotive Infotainment: Automates checks across day/night modes and multiple languages to catch low-contrast or clipped controls before deployment.
+
+Enterprise Kiosks: Validates high-DPI and accessibility-theme variants of self-service apps without exposing screenshots to the cloud.
+
+Productivity Suites: Ensures theming/custom skins remain readable and tappable across diverse monitor setups, reducing support tickets.
+
+Impact
+Snap-Tester empowers teams to shift-left visual and accessibility testing—catching every pixel-level issue on the same device their users run, and delivering consistent, private, sub-minute QA results. It solves a critical gap in existing pipelines by making edge-AI visual QA both automated and scalable.
