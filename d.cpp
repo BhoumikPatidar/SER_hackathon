@@ -1,141 +1,212 @@
-//===- x86_64GOT.h---------------------------------------------------------===//
-// Part of the eld Project, under the BSD License
-// See https://github.com/qualcomm/eld/LICENSE.txt for license information.
-// SPDX-License-Identifier: BSD-3-Clause
-//===----------------------------------------------------------------------===//
-#ifndef ELD_TARGET_x86_64_GOT_H
-#define ELD_TARGET_x86_64_GOT_H
+// //===-
+// x86_64PLT.cpp-------------------------------------------------------===//
+// // Part of the eld Project, under the BSD License
+// // See https://github.com/qualcomm/eld/LICENSE.txt for license information.
+// // SPDX-License-Identifier: BSD-3-Clause
+// //===----------------------------------------------------------------------===//
+// #include "x86_64PLT.h"
+// #include "eld/Readers/ELFSection.h"
+// #include "eld/Readers/Relocation.h"
+// #include "eld/Support/Memory.h"
 
-#include "eld/Fragment/GOT.h"
+// using namespace eld;
+
+// // PLT0
+// x86_64PLT0 *x86_64PLT0::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection
+// *O,
+//                                ResolveInfo *R, bool BindNow) {
+//   // No need of PLT0 when binding now.
+//   if (BindNow)
+//     return nullptr;
+//   x86_64PLT0 *P = make<x86_64PLT0>(G, I, O, R, 16, 16);
+//   O->addFragmentAndUpdateSize(P);
+
+//   Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+//                                       make<FragmentRef>(*P, 2), 8);
+//   r1->setSymInfo(G->symInfo());
+//   O->addRelocation(r1);
+
+//   Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+//                                       make<FragmentRef>(*P, 10), 8);
+//   r2->setSymInfo(G->symInfo());
+//   O->addRelocation(r2);
+
+//   // // Create a relocation and point to the GOT.
+//   // Relocation *r1 = nullptr;
+//   // Relocation *r2 = nullptr;
+
+//   // std::string name = "__gotplt0__";
+//   // // create LDSymbol for the stub
+//   // LDSymbol *symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+//   //     O->getInputFile(), name, ResolveInfo::NoType, ResolveInfo::Define,
+//   //     ResolveInfo::Local,
+//   //     8, // size
+//   //     0, // value
+//   //     make<FragmentRef>(*G, 0), ResolveInfo::Internal,
+//   //     true /* isPostLTOPhase */);
+//   // symbol->setShouldIgnore(false);
+
+//   // r1 = Relocation::Create(llvm::ELF::R_X86_64_JUMP_SLOT, 64,
+//   //                         make<FragmentRef>(*P, 0), 0);
+//   // r1->setSymInfo(symbol->resolveInfo());
+//   // r2 = Relocation::Create(llvm::ELF::R_X86_64_JUMP_SLOT, 64,
+//   //                         make<FragmentRef>(*P, 8), 4);
+//   // r2->setSymInfo(symbol->resolveInfo());
+//   // O->addRelocation(r1);
+//   // O->addRelocation(r2);
+
+//   return P;
+// }
+
+// // PLTN
+// x86_64PLTN *x86_64PLTN::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection
+// *O,
+//                                ResolveInfo *R, bool BindNow) {
+//   x86_64PLTN *P = make<x86_64PLTN>(G, I, O, R, 16, 16);
+//   O->addFragmentAndUpdateSize(P);
+
+//   Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+//                                       make<FragmentRef>(*P, 2), 0);
+//   r1->setSymInfo(G->symInfo());
+//   O->addRelocation(r1);
+
+//   if (!BindNow) {
+//     Fragment *PLT0 = *O->getFragmentList().begin();
+//     Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+//                                         make<FragmentRef>(*P, 12), 0);
+//     FragmentRef *PLT0Ref = make<FragmentRef>(*PLT0, 0);
+//     r2->modifyRelocationFragmentRef(PLT0Ref);
+//     O->addRelocation(r2);
+//   }
+
+//   // // Create a relocation and point to the GOT.
+//   // Relocation *r1 = nullptr;
+//   // Relocation *r2 = nullptr;
+//   // std::string name = "__gotpltn_for_" + std::string(R->name());
+//   // // create LDSymbol for the stub
+//   // LDSymbol *symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+//   //     O->getInputFile(), name, ResolveInfo::NoType, ResolveInfo::Define,
+//   //     ResolveInfo::Local,
+//   //     8, // size
+//   //     0, // value
+//   //     make<FragmentRef>(*G, 0), ResolveInfo::Internal,
+//   //     true /* isPostLTOPhase */);
+//   // symbol->setShouldIgnore(false);
+//   // r1 = Relocation::Create(llvm::ELF::R_X86_64_JUMP_SLOT, 64,
+//   //                         make<FragmentRef>(*P, 0), 0);
+//   // r1->setSymInfo(symbol->resolveInfo());
+//   // r2 = Relocation::Create(llvm::ELF::R_X86_64_JUMP_SLOT, 64,
+//   //                         make<FragmentRef>(*P, 8), 8);
+//   // r2->setSymInfo(symbol->resolveInfo());
+//   // O->addRelocation(r1);
+//   // O->addRelocation(r2);
+
+//   // // No PLT0 for immediate binding.
+//   // if (BindNow)
+//   //   return P;
+
+//   // Fragment *F = *(O->getFragmentList().begin());
+//   // FragmentRef *PLT0FragRef = make<FragmentRef>(*F, 0);
+//   // Relocation *r3 = Relocation::Create(llvm::ELF::R_X86_64_JUMP_SLOT, 64,
+//   //                                     make<FragmentRef>(*G, 0), 0);
+//   // O->addRelocation(r3);
+//   // r3->modifyRelocationFragmentRef(PLT0FragRef);
+//   return P;
+// }
+
+#include "x86_64PLT.h"
+#include "eld/Readers/ELFSection.h"
+#include "eld/Readers/Relocation.h"
 #include "eld/Support/Memory.h"
-#include "eld/Target/GNULDBackend.h"
 
-namespace eld {
+using namespace eld;
 
-/** \class x86_64GOT
- *  \brief x86_64 Global Offset Table.
- */
+// PLT0
+x86_64PLT0 *x86_64PLT0::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
+                               ResolveInfo *R, bool BindNow) {
+  if (BindNow)
+    return nullptr;
 
-class x86_64GOT : public GOT {
-public:
-  // Going to be used by GOTPLT0
-  x86_64GOT(GOTType T, ELFSection *O, ResolveInfo *R, uint32_t Align,
-            uint32_t Size)
-      : GOT(T, O, R, Align, Size), Value(0) {
-    if (O)
-      O->addFragmentAndUpdateSize(this);
+  x86_64PLT0 *P = make<x86_64PLT0>(G, I, O, R, 16, 16);
+  O->addFragmentAndUpdateSize(P);
+
+  if (G) {
+    // Create symbols for GOT+8 and GOT+16 references
+    std::string name1 = "__gotplt_resolver_link_map__";
+    LDSymbol *symbol1 = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+        O->getInputFile(), name1, ResolveInfo::NoType, ResolveInfo::Define,
+        ResolveInfo::Local, 8, 0, make<FragmentRef>(*G, 8),
+        ResolveInfo::Default, true);
+    symbol1->setShouldIgnore(false);
+
+    std::string name2 = "__gotplt_resolver_function__";
+    LDSymbol *symbol2 = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+        O->getInputFile(), name2, ResolveInfo::NoType, ResolveInfo::Define,
+        ResolveInfo::Local, 8, 0, make<FragmentRef>(*G, 16),
+        ResolveInfo::Default, true);
+    symbol2->setShouldIgnore(false);
+
+    // pushq GOTPLT+8(%rip) at offset 2 - link_map pointer
+    Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                        make<FragmentRef>(*P, 2), -4);
+    r1->setSymInfo(symbol1->resolveInfo());
+    O->addRelocation(r1);
+
+    // jmp *GOTPLT+16(%rip) at offset 8 - resolver function  
+    Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                        make<FragmentRef>(*P, 8), -4);
+    r2->setSymInfo(symbol2->resolveInfo());
+    O->addRelocation(r2);
   }
 
-  // Helper constructor for GOT.
-  x86_64GOT(GOTType T, ELFSection *O, ResolveInfo *R) : GOT(T, O, R, 8, 8) {
-    if (O)
-      O->addFragmentAndUpdateSize(this);
+  return P;
+}
+
+// PLTN
+x86_64PLTN *x86_64PLTN::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
+                               ResolveInfo *R, bool BindNow) {
+  x86_64PLTN *P = make<x86_64PLTN>(G, I, O, R, 16, 16);
+  O->addFragmentAndUpdateSize(P);
+
+  if (G && R) {
+    // Create symbol for this PLT entry's GOT reference
+    std::string name = "__gotpltn_for_" + std::string(R->name());
+    LDSymbol *symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+        O->getInputFile(), name, ResolveInfo::NoType, ResolveInfo::Define,
+        ResolveInfo::Local, 8, 0, make<FragmentRef>(*G, 0),
+        ResolveInfo::Default, true);
+    symbol->setShouldIgnore(false);
+
+    // jmp *GOTPLT_entry(%rip) at offset 2 - jump to function
+    Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                        make<FragmentRef>(*P, 2), -4);
+    r1->setSymInfo(symbol->resolveInfo());
+    O->addRelocation(r1);
+
+    // pushq $index at offset 7 - relocation index 
+    // Calculate PLT entry index (PLT entries after PLT0)
+    size_t pltIndex = O->getFragmentList().size() - 1; // -1 because PLT0 is first
+    Relocation *r_index = Relocation::Create(llvm::ELF::R_X86_64_32, 32,
+                                           make<FragmentRef>(*P, 7), 0);
+    r_index->setAddend(pltIndex);
+    O->addRelocation(r_index);
+
+    // jmp PLT0 at offset 12 - jump to resolver
+    if (!BindNow && O->getFragmentList().size() > 1) {
+      Fragment *PLT0 = *(O->getFragmentList().begin());
+      std::string plt0_name = "__plt0_resolver__";
+      LDSymbol *plt0_symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+          O->getInputFile(), plt0_name, ResolveInfo::NoType,
+          ResolveInfo::Define, ResolveInfo::Local, 16, 0,
+          make<FragmentRef>(*PLT0, 0), ResolveInfo::Default, true);
+      plt0_symbol->setShouldIgnore(false);
+
+      Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                          make<FragmentRef>(*P, 12), -4);
+      r2->setSymInfo(plt0_symbol->resolveInfo());
+      O->addRelocation(r2);
+    }
   }
 
-  virtual ~x86_64GOT() {}
-
-  virtual x86_64GOT *getFirst() { return this; }
-
-  virtual x86_64GOT *getNext() { return nullptr; }
-
-  virtual llvm::ArrayRef<uint8_t> getContent() const override {
-    Value = 0;
-    // If the GOT contents needs to reflect a symbol value, then we use the
-    // symbol value.
-    if (getValueType() == GOT::SymbolValue && symInfo() &&
-        symInfo()->outSymbol())
-      Value = symInfo()->outSymbol()->value();
-    if (getValueType() == GOT::TLSStaticSymbolValue && symInfo() &&
-        symInfo()->outSymbol())
-      Value =
-          symInfo()->outSymbol()->value() - GNULDBackend::getTLSTemplateSize();
-
-    return llvm::ArrayRef(reinterpret_cast<const uint8_t *>(&Value),
-                          sizeof(Value));
-  }
-
-  static x86_64GOT *Create(ELFSection *O, ResolveInfo *R) {
-    return make<x86_64GOT>(GOT::Regular, O, R);
-  }
-
-private:
-  mutable uint64_t Value;
-};
-
-class x86_64GOTPLT0 : public x86_64GOT {
-public:
-  x86_64GOTPLT0(ELFSection *O, ResolveInfo *R)
-      : x86_64GOT(GOT::GOTPLT0, O, R, 8, 24) {}
-
-  x86_64GOT *getFirst() override { return this; }
-
-  x86_64GOT *getNext() override { return nullptr; }
-
-  static x86_64GOTPLT0 *Create(ELFSection *O, ResolveInfo *R);
-};
-
-class x86_64GOTPLTN : public x86_64GOT {
-public:
-  x86_64GOTPLTN(ELFSection *O, ResolveInfo *R)
-      : x86_64GOT(GOT::GOTPLTN, O, R, 8, 8) {}
-
-  x86_64GOT *getFirst() override { return this; }
-
-  x86_64GOT *getNext() override { return nullptr; }
-
-  static x86_64GOTPLTN *Create(ELFSection *O, ResolveInfo *R) {
-    return make<x86_64GOTPLTN>(O, R);
-  }
-};
-
-class x86_64GDGOT : public x86_64GOT {
-public:
-  x86_64GDGOT(ELFSection *O, ResolveInfo *R)
-      : x86_64GOT(GOT::TLS_GD, O, R),
-        Other(make<x86_64GOT>(GOT::TLS_GD, O, R)) {}
-
-  x86_64GOT *getFirst() override { return this; }
-
-  x86_64GOT *getNext() override { return Other; }
-
-  static x86_64GOT *Create(ELFSection *O, ResolveInfo *R) {
-    return make<x86_64GDGOT>(O, R);
-  }
-
-private:
-  x86_64GOT *Other;
-};
-
-class x86_64LDGOT : public x86_64GOT {
-public:
-  x86_64LDGOT(ELFSection *O, ResolveInfo *R)
-      : x86_64GOT(GOT::TLS_LD, O, R),
-        Other(make<x86_64GOT>(GOT::TLS_LD, O, R)) {}
-
-  x86_64GOT *getFirst() override { return this; }
-
-  x86_64GOT *getNext() override { return Other; }
-
-  static x86_64GOT *Create(ELFSection *O, ResolveInfo *R) {
-    return make<x86_64LDGOT>(O, R);
-  }
-
-private:
-  x86_64GOT *Other;
-};
-
-class x86_64IEGOT : public x86_64GOT {
-public:
-  x86_64IEGOT(ELFSection *O, ResolveInfo *R) : x86_64GOT(GOT::TLS_LE, O, R) {}
-
-  x86_64GOT *getFirst() override { return this; }
-
-  x86_64GOT *getNext() override { return nullptr; }
-
-  static x86_64GOT *Create(ELFSection *O, ResolveInfo *R) {
-    return make<x86_64IEGOT>(O, R);
-  }
-};
-} // namespace eld
-
-#endif
+  return P;
+}
