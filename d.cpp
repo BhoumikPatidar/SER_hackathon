@@ -1,182 +1,312 @@
-// //===-
-// x86_64PLT.cpp-------------------------------------------------------===//
-// // Part of the eld Project, under the BSD License
-// // See https://github.com/qualcomm/eld/LICENSE.txt for license information.
-// // SPDX-License-Identifier: BSD-3-Clause
-// //===----------------------------------------------------------------------===//
-// #include "x86_64PLT.h"
-// #include "eld/Readers/ELFSection.h"
-// #include "eld/Readers/Relocation.h"
-// #include "eld/Support/Memory.h"
+//===- x86_64LDBackend.cpp-------------------------------------------------===//
+// Part of the eld Project, under the BSD License
+// See https://github.com/qualcomm/eld/LICENSE.txt for license information.
+// SPDX-License-Identifier: BSD-3-Clause
+//===----------------------------------------------------------------------===//
 
-// using namespace eld;
-
-// // PLT0
-// x86_64PLT0 *x86_64PLT0::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection
-// *O,
-//                                ResolveInfo *R, bool BindNow) {
-//   // No need of PLT0 when binding now.
-//   if (BindNow)
-//     return nullptr;
-//   x86_64PLT0 *P = make<x86_64PLT0>(G, I, O, R, 16, 16);
-//   O->addFragmentAndUpdateSize(P);
-
-//   Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-//                                       make<FragmentRef>(*P, 2), 8);
-//   r1->setSymInfo(G->symInfo());
-//   O->addRelocation(r1);
-
-//   Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-//                                       make<FragmentRef>(*P, 10), 8);
-//   r2->setSymInfo(G->symInfo());
-//   O->addRelocation(r2);
-
-//   // // Create a relocation and point to the GOT.
-//   // Relocation *r1 = nullptr;
-//   // Relocation *r2 = nullptr;
-
-//   // std::string name = "__gotplt0__";
-//   // // create LDSymbol for the stub
-//   // LDSymbol *symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-//   //     O->getInputFile(), name, ResolveInfo::NoType, ResolveInfo::Define,
-//   //     ResolveInfo::Local,
-//   //     8, // size
-//   //     0, // value
-//   //     make<FragmentRef>(*G, 0), ResolveInfo::Internal,
-//   //     true /* isPostLTOPhase */);
-//   // symbol->setShouldIgnore(false);
-
-//   // r1 = Relocation::Create(llvm::ELF::R_X86_64_JUMP_SLOT, 64,
-//   //                         make<FragmentRef>(*P, 0), 0);
-//   // r1->setSymInfo(symbol->resolveInfo());
-//   // r2 = Relocation::Create(llvm::ELF::R_X86_64_JUMP_SLOT, 64,
-//   //                         make<FragmentRef>(*P, 8), 4);
-//   // r2->setSymInfo(symbol->resolveInfo());
-//   // O->addRelocation(r1);
-//   // O->addRelocation(r2);
-
-//   return P;
-// }
-
-// // PLTN
-// x86_64PLTN *x86_64PLTN::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection
-// *O,
-//                                ResolveInfo *R, bool BindNow) {
-//   x86_64PLTN *P = make<x86_64PLTN>(G, I, O, R, 16, 16);
-//   O->addFragmentAndUpdateSize(P);
-
-//   Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-//                                       make<FragmentRef>(*P, 2), 0);
-//   r1->setSymInfo(G->symInfo());
-//   O->addRelocation(r1);
-
-//   if (!BindNow) {
-//     Fragment *PLT0 = *O->getFragmentList().begin();
-//     Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-//                                         make<FragmentRef>(*P, 12), 0);
-//     FragmentRef *PLT0Ref = make<FragmentRef>(*PLT0, 0);
-//     r2->modifyRelocationFragmentRef(PLT0Ref);
-//     O->addRelocation(r2);
-//   }
-
-//   // // Create a relocation and point to the GOT.
-//   // Relocation *r1 = nullptr;
-//   // Relocation *r2 = nullptr;
-//   // std::string name = "__gotpltn_for_" + std::string(R->name());
-//   // // create LDSymbol for the stub
-//   // LDSymbol *symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-//   //     O->getInputFile(), name, ResolveInfo::NoType, ResolveInfo::Define,
-//   //     ResolveInfo::Local,
-//   //     8, // size
-//   //     0, // value
-//   //     make<FragmentRef>(*G, 0), ResolveInfo::Internal,
-//   //     true /* isPostLTOPhase */);
-//   // symbol->setShouldIgnore(false);
-//   // r1 = Relocation::Create(llvm::ELF::R_X86_64_JUMP_SLOT, 64,
-//   //                         make<FragmentRef>(*P, 0), 0);
-//   // r1->setSymInfo(symbol->resolveInfo());
-//   // r2 = Relocation::Create(llvm::ELF::R_X86_64_JUMP_SLOT, 64,
-//   //                         make<FragmentRef>(*P, 8), 8);
-//   // r2->setSymInfo(symbol->resolveInfo());
-//   // O->addRelocation(r1);
-//   // O->addRelocation(r2);
-
-//   // // No PLT0 for immediate binding.
-//   // if (BindNow)
-//   //   return P;
-
-//   // Fragment *F = *(O->getFragmentList().begin());
-//   // FragmentRef *PLT0FragRef = make<FragmentRef>(*F, 0);
-//   // Relocation *r3 = Relocation::Create(llvm::ELF::R_X86_64_JUMP_SLOT, 64,
-//   //                                     make<FragmentRef>(*G, 0), 0);
-//   // O->addRelocation(r3);
-//   // r3->modifyRelocationFragmentRef(PLT0FragRef);
-//   return P;
-// }
-
-#include "x86_64PLT.h"
-#include "eld/Readers/ELFSection.h"
-#include "eld/Readers/Relocation.h"
-#include "eld/Support/Memory.h"
+//===----------------------------------------------------------------------===//
+#include "x86_64LDBackend.h"
+#include "eld/Config/LinkerConfig.h"
+#include "eld/Fragment/Stub.h"
+#include "eld/Input/ELFObjectFile.h"
+#include "eld/Object/ObjectBuilder.h"
+#include "eld/Object/ObjectLinker.h"
+#include "eld/Support/MemoryArea.h"
+#include "eld/Support/RegisterTimer.h"
+#include "eld/Support/TargetRegistry.h"
+#include "eld/SymbolResolver/IRBuilder.h"
+#include "eld/Target/ELFFileFormat.h"
+#include "eld/Target/ELFSegmentFactory.h"
+#include "x86_64.h"
+#include "x86_64Relocator.h"
+#include "x86_64StandaloneInfo.h"
+#include "llvm/BinaryFormat/ELF.h"
+#include "llvm/Support/Casting.h"
+#include "llvm/TargetParser/Host.h"
 
 using namespace eld;
+using namespace llvm;
 
-// PLT0
-x86_64PLT0 *x86_64PLT0::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
-                               ResolveInfo *R, bool BindNow) {
-  if (BindNow)
-    return nullptr;
+//===----------------------------------------------------------------------===//
+// x86_64LDBackend
+//===----------------------------------------------------------------------===//
+x86_64LDBackend::x86_64LDBackend(Module &pModule, x86_64Info *pInfo)
+    : GNULDBackend(pModule, pInfo), m_pRelocator(nullptr),
+      m_pEndOfImage(nullptr) {}
 
-  x86_64PLT0 *P = make<x86_64PLT0>(G, I, O, R, 16, 16);
-  O->addFragmentAndUpdateSize(P);
+x86_64LDBackend::~x86_64LDBackend() {}
 
-  if (G) {
-    // pushq GOTPLT+8(%rip) at offset 2 - link_map pointer
-    Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-                                        make<FragmentRef>(*P, 2), -4);
-    r1->setTargetRef(make<FragmentRef>(*G, 8));
-    O->addRelocation(r1);
+bool x86_64LDBackend::initRelocator() {
+  if (nullptr == m_pRelocator)
+    m_pRelocator = make<x86_64Relocator>(*this, config(), m_Module);
+  return true;
+}
 
-    // jmp *GOTPLT+16(%rip) at offset 8 - resolver function  
-    Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-                                        make<FragmentRef>(*P, 8), -4);
-    r2->setTargetRef(make<FragmentRef>(*G, 16));
-    O->addRelocation(r2);
+Relocator *x86_64LDBackend::getRelocator() const {
+  assert(nullptr != m_pRelocator);
+  return m_pRelocator;
+}
+
+Relocation::Type x86_64LDBackend::getCopyRelType() const {
+  return llvm::ELF::R_X86_64_COPY;
+}
+
+unsigned int
+x86_64LDBackend::getTargetSectionOrder(const ELFSection &pSectHdr) const {
+  return SHO_UNDEFINED;
+}
+
+void x86_64LDBackend::initTargetSections(ObjectBuilder &pBuilder) {}
+
+void x86_64LDBackend::initDynamicSections(ELFObjectFile &InputFile) {
+  InputFile.setDynamicSections(
+      *m_Module.createInternalSection(
+          InputFile, LDFileFormat::Internal, ".got", llvm::ELF::SHT_PROGBITS,
+          llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE, 8),
+      *m_Module.createInternalSection(
+          InputFile, LDFileFormat::Internal, ".got.plt",
+          llvm::ELF::SHT_PROGBITS, llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE,
+          8),
+      *m_Module.createInternalSection(
+          InputFile, LDFileFormat::Internal, ".plt", llvm::ELF::SHT_PROGBITS,
+          llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_EXECINSTR, 16),
+      *m_Module.createInternalSection(
+          InputFile, LDFileFormat::DynamicRelocation, ".rela.dyn",
+          llvm::ELF::SHT_RELA, llvm::ELF::SHF_ALLOC, 8),
+      *m_Module.createInternalSection(
+          InputFile, LDFileFormat::DynamicRelocation, ".rela.plt",
+          llvm::ELF::SHT_RELA, llvm::ELF::SHF_ALLOC, 8));
+}
+
+void x86_64LDBackend::initTargetSymbols() {
+  if (config().codeGenType() == LinkerConfig::Object)
+    return;
+
+  m_pEndOfImage =
+      m_Module.getIRBuilder()->addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+          m_Module.getInternalInput(Module::Script), "__end",
+          ResolveInfo::NoType, ResolveInfo::Define, ResolveInfo::Absolute,
+          0x0, // size
+          0x0, // value
+          FragmentRef::null());
+  if (m_pEndOfImage)
+    m_pEndOfImage->setShouldIgnore(false);
+}
+
+bool x86_64LDBackend::initBRIslandFactory() { return true; }
+
+bool x86_64LDBackend::initStubFactory() { return true; }
+
+/// finalizeSymbol - finalize the symbol value
+bool x86_64LDBackend::finalizeTargetSymbols() {
+  if (config().codeGenType() == LinkerConfig::Object)
+    return true;
+
+  // Get the pointer to the real end of the image.
+  if (m_pEndOfImage && !m_pEndOfImage->scriptDefined()) {
+    uint64_t imageEnd = 0;
+    for (auto &seg : elfSegmentTable()) {
+      if (seg->type() != llvm::ELF::PT_LOAD)
+        continue;
+      uint64_t segSz = seg->paddr() + seg->memsz();
+      if (imageEnd < segSz)
+        imageEnd = segSz;
+    }
+    alignAddress(imageEnd, 8);
+    m_pEndOfImage->setValue(imageEnd + 1);
   }
 
+  return true;
+}
+
+// Create GOT entry.
+x86_64GOT *x86_64LDBackend::createGOT(GOT::GOTType T, ELFObjectFile *Obj,
+                                      ResolveInfo *R) {
+
+  if (R != nullptr && ((config().options().isSymbolTracingRequested() &&
+                        config().options().traceSymbol(*R)) ||
+                       m_Module.getPrinter()->traceDynamicLinking()))
+    config().raise(Diag::create_got_entry) << R->name();
+  // If we are creating a GOT, always create a .got.plt.
+  if (!getGOTPLT()->getFragmentList().size()) {
+    // TODO: This should be GOT0, not GOTPLT0.
+    LDSymbol *Dynamic = m_Module.getNamePool().findSymbol("_DYNAMIC");
+    x86_64GOTPLT0::Create(getGOTPLT(),
+                          Dynamic ? Dynamic->resolveInfo() : nullptr);
+  }
+
+  x86_64GOT *G = nullptr;
+  bool GOT = true;
+  switch (T) {
+  case GOT::Regular:
+    G = x86_64GOT::Create(Obj->getGOT(), R);
+    break;
+  case GOT::GOTPLT0:
+    G = llvm::dyn_cast<x86_64GOT>(*getGOTPLT()->getFragmentList().begin());
+    GOT = false;
+    break;
+  case GOT::GOTPLTN:
+    G = x86_64GOTPLTN::Create(Obj->getGOTPLT(), R);
+    GOT = false;
+    break;
+  case GOT::TLS_GD:
+    G = x86_64GDGOT::Create(Obj->getGOT(), R);
+    break;
+  case GOT::TLS_LD:
+    assert(0);
+    break;
+  case GOT::TLS_IE:
+    G = x86_64IEGOT::Create(Obj->getGOT(), R);
+    break;
+  default:
+    assert(0);
+    break;
+  }
+  if (R) {
+    if (GOT)
+      recordGOT(R, G);
+    else
+      recordGOTPLT(R, G);
+  }
+  return G;
+}
+
+// Record GOT entry.
+void x86_64LDBackend::recordGOT(ResolveInfo *I, x86_64GOT *G) {
+  m_GOTMap[I] = G;
+}
+
+// Record GOTPLT entry.
+void x86_64LDBackend::recordGOTPLT(ResolveInfo *I, x86_64GOT *G) {
+  m_GOTPLTMap[I] = G;
+}
+
+// Find an entry in the GOT.
+x86_64GOT *x86_64LDBackend::findEntryInGOT(ResolveInfo *I) const {
+  auto Entry = m_GOTMap.find(I);
+  if (Entry == m_GOTMap.end())
+    return nullptr;
+  return Entry->second;
+}
+
+// Create PLT entry.
+x86_64PLT *x86_64LDBackend::createPLT(ELFObjectFile *Obj, ResolveInfo *R) {
+
+  bool hasNow = config().options().hasNow();
+  if (R != nullptr && ((config().options().isSymbolTracingRequested() &&
+                        config().options().traceSymbol(*R)) ||
+                       m_Module.getPrinter()->traceDynamicLinking()))
+    config().raise(Diag::create_plt_entry) << R->name();
+
+  // If there is no entries GOTPLT and PLT, we dont have a PLT0.
+  if (!hasNow && !getPLT()->getFragmentList().size()) {
+    x86_64PLT0::Create(*m_Module.getIRBuilder(),
+                       createGOT(GOT::GOTPLT0, nullptr, nullptr), getPLT(),
+                       nullptr, hasNow);
+  }
+  x86_64PLT *P = x86_64PLTN::Create(*m_Module.getIRBuilder(),
+                                    createGOT(GOT::GOTPLTN, Obj, R),
+                                    Obj->getPLT(), R, hasNow);
+
+  // init the corresponding rel entry in .rela.plt
+  if (R && !config().isCodeStatic()) {
+    Relocation &rela_entry = *Obj->getRelaPLT()->createOneReloc();
+    rela_entry.setType(llvm::ELF::R_X86_64_JUMP_SLOT);
+    Fragment *gotFrag = P->getGOT();
+    rela_entry.setTargetRef(make<FragmentRef>(*gotFrag, 0));
+    rela_entry.setSymInfo(R);
+    rela_entry.setAddend(0);
+  }
+
+  if (R)
+    recordPLT(R, P);
   return P;
 }
 
-// PLTN
-x86_64PLTN *x86_64PLTN::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
-                               ResolveInfo *R, bool BindNow) {
-  x86_64PLTN *P = make<x86_64PLTN>(G, I, O, R, 16, 16);
-  O->addFragmentAndUpdateSize(P);
+// Record GOT entry.
+void x86_64LDBackend::recordPLT(ResolveInfo *I, x86_64PLT *P) {
+  m_PLTMap[I] = P;
+}
 
-  if (G && R) {
-    // jmp *GOTPLT_entry(%rip) at offset 2 - jump to function
-    Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-                                        make<FragmentRef>(*P, 2), -4);
-    r1->setTargetRef(make<FragmentRef>(*G, 0));
-    O->addRelocation(r1);
+// Find an entry in the GOT.
+x86_64PLT *x86_64LDBackend::findEntryInPLT(ResolveInfo *I) const {
+  auto Entry = m_PLTMap.find(I);
+  if (Entry == m_PLTMap.end())
+    return nullptr;
+  return Entry->second;
+}
 
-    // pushq $index at offset 7 - relocation index 
-    // Calculate PLT entry index (PLT entries after PLT0)
-    size_t pltIndex = O->getFragmentList().size() - 1; // -1 because PLT0 is first
-    Relocation *r_index = Relocation::Create(llvm::ELF::R_X86_64_32, 32,
-                                           make<FragmentRef>(*P, 7), 0);
-    r_index->setAddend(pltIndex);
-    O->addRelocation(r_index);
+uint64_t
+x86_64LDBackend::getValueForDiscardedRelocations(const Relocation *R) const {
+  if (!m_pEndOfImage)
+    return GNULDBackend::getValueForDiscardedRelocations(R);
+  return m_pEndOfImage->value();
+}
 
-    // jmp PLT0 at offset 12 - jump to resolver
-    if (!BindNow && O->getFragmentList().size() > 1) {
-      Fragment *PLT0 = *(O->getFragmentList().begin());
-      Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-                                          make<FragmentRef>(*P, 12), -4);
-      r2->setTargetRef(make<FragmentRef>(*PLT0, 0));
-      O->addRelocation(r2);
-    }
+void x86_64LDBackend::initializeAttributes() {
+  getInfo().initializeAttributes(m_Module.getIRBuilder()->getInputBuilder());
+}
+
+void x86_64LDBackend::setDefaultConfigs() {
+  if (config().options().threadsEnabled() &&
+      !config().isGlobalThreadingEnabled()) {
+    config().disableThreadOptions(LinkerConfig::EnableThreadsOpt::AllThreads);
+  }
+}
+
+void x86_64LDBackend::doPreLayout() {
+  if ((!config().isCodeStatic() || config().options().forceDynamic()) &&
+      nullptr == m_pDynamic)
+    m_pDynamic = make<x86_64ELFDynamic>(*this, config());
+
+  if (LinkerConfig::Object != config().codeGenType()) {
+    getRelaPLT()->setSize(getRelaPLT()->getRelocations().size() *
+                          getRelaEntrySize());
+    getRelaDyn()->setSize(getRelaDyn()->getRelocations().size() *
+                          getRelaEntrySize());
+    if (getRelaPLT()->size() > 0)
+      m_Module.addOutputSection(getRelaPLT());
+    if (getRelaDyn()->size() > 0)
+      m_Module.addOutputSection(getRelaDyn());
   }
 
-  return P;
+  for (auto &sym : m_Module.getNamePool().getGlobals()) {
+    ResolveInfo *rsym = sym.getValue();
+    if (rsym && rsym->isUndef() && rsym->isDyn()) {
+      // Symbol is undefined and dynamic - will be resolved at runtime
+    }
+  }
+}
+
+bool x86_64LDBackend::isSymbolPreemptible(ResolveInfo &pSym) const {
+  if (pSym.isDyn())
+    return true;
+
+  if (config().codeGenType() == LinkerConfig::Exec)
+    return !pSym.isLocal();
+
+  return !pSym.isLocal() && pSym.visibility() == llvm::ELF::STV_DEFAULT;
+}
+
+x86_64ELFDynamic *x86_64LDBackend::dynamic() { return m_pDynamic; }
+
+namespace eld {
+
+//===----------------------------------------------------------------------===//
+/// createx86_64LDBackend - the help function to create corresponding
+/// x86_64LDBackend
+GNULDBackend *createx86_64LDBackend(Module &pModule) {
+  return make<x86_64LDBackend>(pModule,
+                               make<x86_64StandaloneInfo>(pModule.getConfig()));
+}
+
+} // namespace eld
+
+//===----------------------------------------------------------------------===//
+// Force static initialization.
+//===----------------------------------------------------------------------===//
+extern "C" void ELDInitializex86_64LDBackend() {
+  // Register the linker backend
+  eld::TargetRegistry::RegisterGNULDBackend(Thex86_64Target,
+                                            createx86_64LDBackend);
 }
