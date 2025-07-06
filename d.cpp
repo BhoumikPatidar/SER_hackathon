@@ -1,29 +1,61 @@
-//===- x86_64GOT.cpp-------------------------------------------------------===//
-// Part of the eld Project, under the BSD License
-// See https://github.com/qualcomm/eld/LICENSE.txt for license information.
-// SPDX-License-Identifier: BSD-3-Clause
-//===----------------------------------------------------------------------===//
-#include "x86_64GOT.h"
+#include "x86_64PLT.h"
 #include "eld/Readers/ELFSection.h"
 #include "eld/Readers/Relocation.h"
+#include "eld/Support/Memory.h"
 
 using namespace eld;
 
-// GOTPLT0
-x86_64GOTPLT0 *x86_64GOTPLT0::Create(ELFSection *O, ResolveInfo *R) {
-  x86_64GOTPLT0 *G = make<x86_64GOTPLT0>(O, R);
+// PLT0
+x86_64PLT0 *x86_64PLT0::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
+                               ResolveInfo *R, bool BindNow) {
+  if (BindNow)
+    return nullptr;
 
-  if (R) {
-    // GOT[0] = &_DYNAMIC - Create relocation for _DYNAMIC symbol
-    Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_64, 64,
-                                        make<FragmentRef>(*G, 0), 0);
-    r1->setSymInfo(R);
+  x86_64PLT0 *P = make<x86_64PLT0>(G, I, O, R, 16, 16);
+  O->addFragmentAndUpdateSize(P);
+
+  if (G) {
+    // pushq GOTPLT+8(%rip) at offset 2 - link_map pointer
+    Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                        make<FragmentRef>(*P, 2), 4);
+    r1->setTargetRef(make<FragmentRef>(*G, 8));
     O->addRelocation(r1);
+
+    // jmp *GOTPLT+16(%rip) at offset 8 - resolver function
+    Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                        make<FragmentRef>(*P, 8), 4);
+    r2->setTargetRef(make<FragmentRef>(*G, 16));
+    O->addRelocation(r2);
   }
 
-  // GOT[1] and GOT[2] are filled by dynamic linker at runtime:
-  // GOT[1] = link_map pointer 
-  // GOT[2] = resolver function address
+  return P;
+}
 
-  return G;
+// PLTN
+x86_64PLTN *x86_64PLTN::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
+                               ResolveInfo *R, bool BindNow) {
+  x86_64PLTN *P = make<x86_64PLTN>(G, I, O, R, 16, 16);
+  O->addFragmentAndUpdateSize(P);
+
+  if (G && R) {
+    // jmp *GOTPLT_entry(%rip) at offset 2 - jump to function
+    Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                        make<FragmentRef>(*P, 2), 2);
+    r1->setTargetRef(make<FragmentRef>(*G, 0));
+    O->addRelocation(r1);
+
+    // pushq $index at offset 7 - relocation index (set during layout)
+    // The index will be set when the PLT is finalized
+
+    // jmp PLT0 at offset 12 - jump to resolver
+    if (!BindNow && O->getFragmentList().size() > 1) {
+      Fragment *PLT0 = *(O->getFragmentList().begin());
+      Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                          make<FragmentRef>(*P, 12), 0);
+      r2->setTargetRef(make<FragmentRef>(*PLT0, 0));
+      O->addRelocation(r2);
+    }
+  }
+
+  return P;
 }
