@@ -131,32 +131,21 @@ x86_64PLT0 *x86_64PLT0::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
   O->addFragmentAndUpdateSize(P);
 
   if (G) {
-    // Create symbols for GOT+8 and GOT+16 references
-    std::string name1 = "__gotplt_resolver_link_map__";
-    LDSymbol *symbol1 = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-        O->getInputFile(), name1, ResolveInfo::NoType, ResolveInfo::Define,
-        ResolveInfo::Local, 8, 0, make<FragmentRef>(*G, 8),
-        ResolveInfo::Default, true);
-    symbol1->setShouldIgnore(false);
+    // Use the GOT symbol directly for PLT0 relocations
+    ResolveInfo *gotSymInfo = G->symInfo();
+    if (gotSymInfo) {
+      // pushq GOTPLT+8(%rip) at offset 2 - link_map pointer
+      Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                          make<FragmentRef>(*P, 2), 4);
+      r1->setSymInfo(gotSymInfo);
+      O->addRelocation(r1);
 
-    std::string name2 = "__gotplt_resolver_function__";
-    LDSymbol *symbol2 = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-        O->getInputFile(), name2, ResolveInfo::NoType, ResolveInfo::Define,
-        ResolveInfo::Local, 8, 0, make<FragmentRef>(*G, 16),
-        ResolveInfo::Default, true);
-    symbol2->setShouldIgnore(false);
-
-    // pushq GOTPLT+8(%rip) at offset 2 - link_map pointer
-    Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-                                        make<FragmentRef>(*P, 2), -4);
-    r1->setSymInfo(symbol1->resolveInfo());
-    O->addRelocation(r1);
-
-    // jmp *GOTPLT+16(%rip) at offset 8 - resolver function  
-    Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-                                        make<FragmentRef>(*P, 8), -4);
-    r2->setSymInfo(symbol2->resolveInfo());
-    O->addRelocation(r2);
+      // jmp *GOTPLT+16(%rip) at offset 8 - resolver function  
+      Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                          make<FragmentRef>(*P, 8), 12);
+      r2->setSymInfo(gotSymInfo);
+      O->addRelocation(r2);
+    }
   }
 
   return P;
@@ -169,43 +158,17 @@ x86_64PLTN *x86_64PLTN::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
   O->addFragmentAndUpdateSize(P);
 
   if (G && R) {
-    // Create symbol for this PLT entry's GOT reference
-    std::string name = "__gotpltn_for_" + std::string(R->name());
-    LDSymbol *symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-        O->getInputFile(), name, ResolveInfo::NoType, ResolveInfo::Define,
-        ResolveInfo::Local, 8, 0, make<FragmentRef>(*G, 0),
-        ResolveInfo::Default, true);
-    symbol->setShouldIgnore(false);
-
-    // jmp *GOTPLT_entry(%rip) at offset 2 - jump to function
-    Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-                                        make<FragmentRef>(*P, 2), -4);
-    r1->setSymInfo(symbol->resolveInfo());
-    O->addRelocation(r1);
-
-    // pushq $index at offset 7 - relocation index 
-    // Calculate PLT entry index (PLT entries after PLT0)
-    size_t pltIndex = O->getFragmentList().size() - 1; // -1 because PLT0 is first
-    Relocation *r_index = Relocation::Create(llvm::ELF::R_X86_64_32, 32,
-                                           make<FragmentRef>(*P, 7), 0);
-    r_index->setAddend(pltIndex);
-    O->addRelocation(r_index);
-
-    // jmp PLT0 at offset 12 - jump to resolver
-    if (!BindNow && O->getFragmentList().size() > 1) {
-      Fragment *PLT0 = *(O->getFragmentList().begin());
-      std::string plt0_name = "__plt0_resolver__";
-      LDSymbol *plt0_symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-          O->getInputFile(), plt0_name, ResolveInfo::NoType,
-          ResolveInfo::Define, ResolveInfo::Local, 16, 0,
-          make<FragmentRef>(*PLT0, 0), ResolveInfo::Default, true);
-      plt0_symbol->setShouldIgnore(false);
-
-      Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
-                                          make<FragmentRef>(*P, 12), -4);
-      r2->setSymInfo(plt0_symbol->resolveInfo());
-      O->addRelocation(r2);
+    // Use the GOT symbol directly for PLTN relocations
+    ResolveInfo *gotSymInfo = G->symInfo();
+    if (gotSymInfo) {
+      // jmp *GOTPLT_entry(%rip) at offset 2 - jump to function
+      Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                          make<FragmentRef>(*P, 2), -4);
+      r1->setSymInfo(gotSymInfo);
+      O->addRelocation(r1);
     }
+
+    // Note: pushq index and jmp PLT0 will be handled during layout phase
   }
 
   return P;
