@@ -216,13 +216,12 @@ x86_64PLT *x86_64LDBackend::createPLT(ELFObjectFile *Obj, ResolveInfo *R) {
   if (!hasNow) {
     // Create PLT symbol reference for the lazy binding trampoline
     std::string plt_name = "__plt_for_" + std::string(R->name());
-    FragmentRef *plt_ref = &make<FragmentRef>(*P, 6);
     LDSymbol *plt_symbol = m_Module.getIRBuilder()->addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
         Obj, plt_name, ResolveInfo::NoType, ResolveInfo::Define,
         ResolveInfo::Local,
         16, // size
         6,  // value (offset to pushq instruction)
-        plt_ref, ResolveInfo::Internal,
+        make<FragmentRef>(*P, 6), ResolveInfo::Internal,
         true /* isPostLTOPhase */);
     plt_symbol->setShouldIgnore(false);
     
