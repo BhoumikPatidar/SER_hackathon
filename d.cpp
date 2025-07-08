@@ -1,297 +1,54 @@
-//===- x86_64LDBackend.cpp-------------------------------------------------===//
+//===- x86_64ELFDynamic.h-------------------------------------------------===//
 // Part of the eld Project, under the BSD License
 // See https://github.com/qualcomm/eld/LICENSE.txt for license information.
 // SPDX-License-Identifier: BSD-3-Clause
 //===----------------------------------------------------------------------===//
 
-//===----------------------------------------------------------------------===//
-#include "x86_64LDBackend.h"
-#include "eld/Config/LinkerConfig.h"
-#include "eld/Fragment/Stub.h"
-#include "eld/Input/ELFObjectFile.h"
-#include "eld/Object/ObjectBuilder.h"
-#include "eld/Object/ObjectLinker.h"
-#include "eld/Support/MemoryArea.h"
-#include "eld/Support/RegisterTimer.h"
-#include "eld/Support/TargetRegistry.h"
-#include "eld/SymbolResolver/IRBuilder.h"
-#include "eld/Target/ELFFileFormat.h"
-#include "eld/Target/ELFSegmentFactory.h"
-#include "x86_64.h"
-#include "x86_64Relocator.h"
-#include "x86_64StandaloneInfo.h"
-#include "llvm/BinaryFormat/ELF.h"
-#include "llvm/Support/Casting.h"
-#include "llvm/TargetParser/Host.h"
+#ifndef TARGET_X86_64_X86_64ELFDYNAMIC_H
+#define TARGET_X86_64_X86_64ELFDYNAMIC_H
 
-using namespace eld;
-using namespace llvm;
-
-//===----------------------------------------------------------------------===//
-// x86_64LDBackend
-//===----------------------------------------------------------------------===//
-x86_64LDBackend::x86_64LDBackend(Module &pModule, x86_64Info *pInfo)
-    : GNULDBackend(pModule, pInfo), m_pRelocator(nullptr),
-      m_pEndOfImage(nullptr), m_pDynamic(nullptr) {}
-
-x86_64LDBackend::~x86_64LDBackend() {}
-
-bool x86_64LDBackend::initRelocator() {
-  if (nullptr == m_pRelocator)
-    m_pRelocator = make<x86_64Relocator>(*this, config(), m_Module);
-  return true;
-}
-
-Relocator *x86_64LDBackend::getRelocator() const {
-  assert(nullptr != m_pRelocator);
-  return m_pRelocator;
-}
-
-Relocation::Type x86_64LDBackend::getCopyRelType() const {
-  return llvm::ELF::R_X86_64_COPY;
-}
-
-unsigned int
-x86_64LDBackend::getTargetSectionOrder(const ELFSection &pSectHdr) const {
-  return SHO_UNDEFINED;
-}
-
-void x86_64LDBackend::initTargetSections(ObjectBuilder &pBuilder) {}
-
-void x86_64LDBackend::initDynamicSections(ELFObjectFile &InputFile) {
-  InputFile.setDynamicSections(
-      *m_Module.createInternalSection(
-          InputFile, LDFileFormat::Internal, ".got", llvm::ELF::SHT_PROGBITS,
-          llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE, 8),
-      *m_Module.createInternalSection(
-          InputFile, LDFileFormat::Internal, ".got.plt",
-          llvm::ELF::SHT_PROGBITS, llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_WRITE,
-          8),
-      *m_Module.createInternalSection(
-          InputFile, LDFileFormat::Internal, ".plt", llvm::ELF::SHT_PROGBITS,
-          llvm::ELF::SHF_ALLOC | llvm::ELF::SHF_EXECINSTR, 16),
-      *m_Module.createInternalSection(
-          InputFile, LDFileFormat::DynamicRelocation, ".rela.dyn",
-          llvm::ELF::SHT_RELA, llvm::ELF::SHF_ALLOC, 8),
-      *m_Module.createInternalSection(
-          InputFile, LDFileFormat::DynamicRelocation, ".rela.plt",
-          llvm::ELF::SHT_RELA, llvm::ELF::SHF_ALLOC, 8));
-}
-
-void x86_64LDBackend::initTargetSymbols() {
-  if (config().codeGenType() == LinkerConfig::Object)
-    return;
-
-  m_pEndOfImage =
-      m_Module.getIRBuilder()->addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-          m_Module.getInternalInput(Module::Script), "__end",
-          ResolveInfo::NoType, ResolveInfo::Define, ResolveInfo::Absolute,
-          0x0, // size
-          0x0, // value
-          FragmentRef::null());
-  if (m_pEndOfImage)
-    m_pEndOfImage->setShouldIgnore(false);
-}
-
-bool x86_64LDBackend::initBRIslandFactory() { return true; }
-
-bool x86_64LDBackend::initStubFactory() { return true; }
-
-/// finalizeSymbol - finalize the symbol value
-bool x86_64LDBackend::finalizeTargetSymbols() {
-  if (config().codeGenType() == LinkerConfig::Object)
-    return true;
-
-  // Get the pointer to the real end of the image.
-  if (m_pEndOfImage && !m_pEndOfImage->scriptDefined()) {
-    uint64_t imageEnd = 0;
-    for (auto &seg : elfSegmentTable()) {
-      if (seg->type() != llvm::ELF::PT_LOAD)
-        continue;
-      uint64_t segSz = seg->paddr() + seg->memsz();
-      if (imageEnd < segSz)
-        imageEnd = segSz;
-    }
-    alignAddress(imageEnd, 8);
-    m_pEndOfImage->setValue(imageEnd + 1);
-  }
-
-  return true;
-}
-
-// Create GOT entry.
-x86_64GOT *x86_64LDBackend::createGOT(GOT::GOTType T, ELFObjectFile *Obj,
-                                      ResolveInfo *R) {
-
-  if (R != nullptr && ((config().options().isSymbolTracingRequested() &&
-                        config().options().traceSymbol(*R)) ||
-                       m_Module.getPrinter()->traceDynamicLinking()))
-    config().raise(Diag::create_got_entry) << R->name();
-  // If we are creating a GOT, always create a .got.plt header.
-  if (!getGOTPLT()->getFragmentList().size()) {
-    // Create GOT.PLT header with _DYNAMIC in GOT.PLT[0]
-    LDSymbol *Dynamic = m_Module.getNamePool().findSymbol("_DYNAMIC");
-    x86_64GOTPLT0::Create(getGOTPLT(),
-                          Dynamic ? Dynamic->resolveInfo() : nullptr);
-  }
-
-  x86_64GOT *G = nullptr;
-  bool GOT = true;
-  switch (T) {
-  case GOT::Regular:
-    G = x86_64GOT::Create(Obj->getGOT(), R);
-    break;
-  case GOT::GOTPLT0:
-    G = llvm::dyn_cast<x86_64GOT>(*getGOTPLT()->getFragmentList().begin());
-    GOT = false;
-    break;
-  case GOT::GOTPLTN:
-    G = x86_64GOTPLTN::Create(Obj->getGOTPLT(), R);
-    GOT = false;
-    break;
-  case GOT::TLS_GD:
-    G = x86_64GDGOT::Create(Obj->getGOT(), R);
-    break;
-  case GOT::TLS_LD:
-    assert(0);
-    break;
-  case GOT::TLS_IE:
-    G = x86_64IEGOT::Create(Obj->getGOT(), R);
-    break;
-  default:
-    assert(0);
-    break;
-  }
-  if (R) {
-    if (GOT)
-      recordGOT(R, G);
-    else
-      recordGOTPLT(R, G);
-  }
-  return G;
-}
-
-// Record GOT entry.
-void x86_64LDBackend::recordGOT(ResolveInfo *I, x86_64GOT *G) {
-  m_GOTMap[I] = G;
-}
-
-// Record GOTPLT entry.
-void x86_64LDBackend::recordGOTPLT(ResolveInfo *I, x86_64GOT *G) {
-  m_GOTPLTMap[I] = G;
-}
-
-// Find an entry in the GOT.
-x86_64GOT *x86_64LDBackend::findEntryInGOT(ResolveInfo *I) const {
-  auto Entry = m_GOTMap.find(I);
-  if (Entry == m_GOTMap.end())
-    return nullptr;
-  return Entry->second;
-}
-
-// Create PLT entry.
-x86_64PLT *x86_64LDBackend::createPLT(ELFObjectFile *Obj, ResolveInfo *R) {
-  bool hasNow = config().options().hasNow();
-  if (R != nullptr && ((config().options().isSymbolTracingRequested() &&
-                        config().options().traceSymbol(*R)) ||
-                       m_Module.getPrinter()->traceDynamicLinking()))
-    config().raise(Diag::create_plt_entry) << R->name();
-  // If there is no entries GOTPLT and PLT, we dont have a PLT0.
-  if (!hasNow && !getPLT()->getFragmentList().size()) {
-    x86_64PLT0::Create(*m_Module.getIRBuilder(),
-                       createGOT(GOT::GOTPLT0, nullptr, nullptr), getPLT(),
-                       nullptr, hasNow);
-  }
-  x86_64PLT *P = x86_64PLTN::Create(*m_Module.getIRBuilder(),
-                                    createGOT(GOT::GOTPLTN, Obj, R),
-                                    Obj->getPLT(), R, hasNow);
-  // init the corresponding rel entry in .rela.plt
-  Relocation &rela_entry = *Obj->getRelaPLT()->createOneReloc();
-  rela_entry.setType(llvm::ELF::R_X86_64_JUMP_SLOT);
-  Fragment *F = P->getGOT();
-  rela_entry.setTargetRef(make<FragmentRef>(*F, 0));
-  rela_entry.setSymInfo(R);
-  
-  // Initialize GOT.PLT[3] to point to foo@plt+6 for lazy binding
-  if (!hasNow) {
-    // Create PLT symbol reference for the lazy binding trampoline
-    std::string plt_name = "__plt_for_" + std::string(R->name());
-    LDSymbol *plt_symbol = m_Module.getIRBuilder()->addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-        Obj, plt_name, ResolveInfo::NoType, ResolveInfo::Define,
-        ResolveInfo::Local,
-        16, // size
-        6,  // value (offset to pushq instruction)
-        make<FragmentRef>(*P, 6), ResolveInfo::Internal,
-        true /* isPostLTOPhase */);
-    plt_symbol->setShouldIgnore(false);
-    
-    // Create link-time relocation to initialize GOT.PLT[3] = foo@plt+6
-    Relocation *init_reloc = Relocation::Create(llvm::ELF::R_X86_64_64, 64,
-                                               make<FragmentRef>(*F, 0), 0);
-    init_reloc->setSymInfo(plt_symbol->resolveInfo());
-    Obj->getGOTPLT()->addRelocation(init_reloc);
-  }
-  
-  if (R)
-    recordPLT(R, P);
-  return P;
-}
-
-// Record GOT entry.
-void x86_64LDBackend::recordPLT(ResolveInfo *I, x86_64PLT *P) {
-  m_PLTMap[I] = P;
-}
-
-// Find an entry in the GOT.
-x86_64PLT *x86_64LDBackend::findEntryInPLT(ResolveInfo *I) const {
-  auto Entry = m_PLTMap.find(I);
-  if (Entry == m_PLTMap.end())
-    return nullptr;
-  return Entry->second;
-}
-
-uint64_t
-x86_64LDBackend::getValueForDiscardedRelocations(const Relocation *R) const {
-  if (!m_pEndOfImage)
-    return GNULDBackend::getValueForDiscardedRelocations(R);
-  return m_pEndOfImage->value();
-}
-
-void x86_64LDBackend::initializeAttributes() {
-  getInfo().initializeAttributes(m_Module.getIRBuilder()->getInputBuilder());
-}
-
-void x86_64LDBackend::setDefaultConfigs() {
-  if (config().options().threadsEnabled() &&
-      !config().isGlobalThreadingEnabled()) {
-    config().disableThreadOptions(LinkerConfig::EnableThreadsOpt::AllThreads);
-  }
-}
-
-void x86_64LDBackend::doPreLayout() {
-  // initialize .dynamic data
-  if ((!config().isCodeStatic() || config().options().forceDynamic()) &&
-      nullptr == m_pDynamic)
-    m_pDynamic = make<ELFDynamic>(*this, config());
-}
+#include "eld/Target/ELFDynamic.h"
 
 namespace eld {
 
-//===----------------------------------------------------------------------===//
-/// createx86_64LDBackend - the help function to create corresponding
-/// x86_64LDBackend
-GNULDBackend *createx86_64LDBackend(Module &pModule) {
-  return make<x86_64LDBackend>(pModule,
-                               make<x86_64StandaloneInfo>(pModule.getConfig()));
-}
+class x86_64ELFDynamic : public ELFDynamic {
+public:
+  x86_64ELFDynamic(GNULDBackend &pParent, LinkerConfig &pConfig);
+  ~x86_64ELFDynamic();
+
+private:
+  void reserveTargetEntries() override;
+  void applyTargetEntries() override;
+};
 
 } // namespace eld
 
+#endif
+
+//===- x86_64ELFDynamic.cpp-----------------------------------------------===//
+// Part of the eld Project, under the BSD License
+// See https://github.com/qualcomm/eld/LICENSE.txt for license information.
+// SPDX-License-Identifier: BSD-3-Clause
 //===----------------------------------------------------------------------===//
-// Force static initialization.
-//===----------------------------------------------------------------------===//
-extern "C" void ELDInitializex86_64LDBackend() {
-  // Register the linker backend
-  eld::TargetRegistry::RegisterGNULDBackend(Thex86_64Target,
-                                            createx86_64LDBackend);
+
+#include "x86_64ELFDynamic.h"
+#include "x86_64LDBackend.h"
+#include "eld/Config/LinkerConfig.h"
+#include "eld/Target/ELFFileFormat.h"
+
+using namespace eld;
+
+x86_64ELFDynamic::x86_64ELFDynamic(GNULDBackend &pParent, LinkerConfig &pConfig)
+    : ELFDynamic(pParent, pConfig) {}
+
+x86_64ELFDynamic::~x86_64ELFDynamic() {}
+
+void x86_64ELFDynamic::reserveTargetEntries() {
+  // For x86_64, we don't need any target-specific dynamic entries
+  // The base ELFDynamic class handles all the standard PLT/GOT entries
+}
+
+void x86_64ELFDynamic::applyTargetEntries() {
+  // For x86_64, we don't need to apply any target-specific dynamic entries
+  // The base ELFDynamic class handles all the standard PLT/GOT entries
 }
