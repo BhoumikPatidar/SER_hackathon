@@ -1,115 +1,155 @@
-//===- x86_64LDBackend.h---------------------------------------------------===//
+//===- x86_64PLT.cpp-------------------------------------------------------===//
 // Part of the eld Project, under the BSD License
 // See https://github.com/qualcomm/eld/LICENSE.txt for license information.
 // SPDX-License-Identifier: BSD-3-Clause
 //===----------------------------------------------------------------------===//
-
-#ifndef X86_64_LDBACKEND_H
-#define X86_64_LDBACKEND_H
-
-#include "eld/Config/LinkerConfig.h"
-#include "eld/Object/ObjectBuilder.h"
-#include "eld/Readers/ELFSection.h"
-#include "eld/SymbolResolver/IRBuilder.h"
-#include "eld/Target/ELFDynamic.h"
-#include "eld/Target/GNULDBackend.h"
 #include "x86_64PLT.h"
+#include "eld/Readers/ELFSection.h"
+#include "eld/Readers/Relocation.h"
+#include "eld/Support/Memory.h"
 
-namespace eld {
+using namespace eld;
 
-class LinkerConfig;
-class x86_64Info;
-
-//===----------------------------------------------------------------------===//
-/// x86_64LDBackend - linker backend of x86_64 target of GNU ELF format
-///
-class x86_64LDBackend : public GNULDBackend {
-public:
-  x86_64LDBackend(Module &pModule, x86_64Info *pInfo);
-
-  ~x86_64LDBackend();
-
-  void initializeAttributes() override;
-
-  /// initRelocator - create and initialize Relocator.
-  bool initRelocator() override;
-
-  /// getRelocator - return relocator.
-  Relocator *getRelocator() const override;
-
-  void initTargetSections(ObjectBuilder &pBuilder) override;
-
-  /// Create dynamic input sections in an input file.
-  void initDynamicSections(ELFObjectFile &) override;
-
-  void initTargetSymbols() override;
-
-  bool initBRIslandFactory() override;
-
-  bool initStubFactory() override;
-
-  /// getTargetSectionOrder - compute the layout order of target section
-  unsigned int getTargetSectionOrder(const ELFSection &pSectHdr) const override;
-
-  /// finalizeTargetSymbols - finalize the symbol value
-  bool finalizeTargetSymbols() override;
-
-  uint64_t getValueForDiscardedRelocations(const Relocation *R) const override;
-
-  /// doPreLayout - Backend can do any needed modification before layout
-  void doPreLayout() override;
-
-  ELFDynamic *dynamic() override { return m_pDynamic; }
-
-  void doCreateProgramHdrs() override { return; }
-
-  Stub *getBranchIslandStub(Relocation *pReloc,
-                            int64_t pTargetValue) const override {
+// PLT0
+x86_64PLT0 *x86_64PLT0::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
+                               ResolveInfo *R, bool BindNow) {
+  // No need of PLT0 when binding now.
+  if (BindNow)
     return nullptr;
+  x86_64PLT0 *P = make<x86_64PLT0>(G, I, O, R, 16, 16);
+  O->addFragmentAndUpdateSize(P);
+
+  // Create relocations to point to GOT.PLT[1] and GOT.PLT[2]
+  Relocation *r1 = nullptr;
+  Relocation *r2 = nullptr;
+
+  // Create symbol for GOT.PLT[1] (offset 8 from GOT.PLT base)
+  std::string name1 = "__gotplt1__";
+  LDSymbol *symbol1 = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+      O->getInputFile(), name1, ResolveInfo::NoType, ResolveInfo::Define,
+      ResolveInfo::Local,
+      8, // size
+      0, // value
+      make<FragmentRef>(*G, 8), ResolveInfo::Internal,
+      true /* isPostLTOPhase */);
+  symbol1->setShouldIgnore(false);
+
+  // Create symbol for GOT.PLT[2] (offset 16 from GOT.PLT base)
+  std::string name2 = "__gotplt2__";
+  LDSymbol *symbol2 = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+      O->getInputFile(), name2, ResolveInfo::NoType, ResolveInfo::Define,
+      ResolveInfo::Local,
+      8, // size
+      0, // value
+      make<FragmentRef>(*G, 16), ResolveInfo::Internal,
+      true /* isPostLTOPhase */);
+  symbol2->setShouldIgnore(false);
+
+  // r1: pushq GOTPLT+8(%rip) - PC-relative relocation at offset 2
+  r1 = Relocation::Create(llvm::ELF::R_X86_64_GOTPCREL, 32,
+                          make<FragmentRef>(*P, 2), -4);
+  r1->setSymInfo(symbol1->resolveInfo());
+
+  // r2: jmp *GOTPLT+16(%rip) - PC-relative relocation at offset 8
+  r2 = Relocation::Create(llvm::ELF::R_X86_64_GOTPCREL, 32,
+                          make<FragmentRef>(*P, 8), -4);
+  r2->setSymInfo(symbol2->resolveInfo());
+
+  O->addRelocation(r1);
+  O->addRelocation(r2);
+
+  return P;
+}
+
+// PLTN
+x86_64PLTN *x86_64PLTN::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
+                               ResolveInfo *R, bool BindNow) {
+  x86_64PLTN *P = make<x86_64PLTN>(G, I, O, R, 16, 16);
+  O->addFragmentAndUpdateSize(P);
+
+  // Create relocations for GOT access and PLT0 jump
+  Relocation *r1 = nullptr;
+  Relocation *r2 = nullptr;
+  
+  // Create symbol for GOT.PLT entry for this function
+  std::string name = "__gotpltn_for_" + std::string(R->name());
+  LDSymbol *symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+      O->getInputFile(), name, ResolveInfo::NoType, ResolveInfo::Define,
+      ResolveInfo::Local,
+      8, // size
+      0, // value
+      make<FragmentRef>(*G, 0), ResolveInfo::Internal,
+      true /* isPostLTOPhase */);
+  symbol->setShouldIgnore(false);
+
+  // r1: jmpq *got(%rip) - PC-relative relocation at offset 2
+  r1 = Relocation::Create(llvm::ELF::R_X86_64_GOTPCREL, 32,
+                          make<FragmentRef>(*P, 2), -4);
+  r1->setSymInfo(symbol->resolveInfo());
+  O->addRelocation(r1);
+
+  // No PLT0 for immediate binding.
+  if (BindNow)
+    return P;
+
+  // r2: jmpq plt[0] - PC-relative relocation at offset 12 to PLT0
+  Fragment *PLT0Fragment = *(O->getFragmentList().begin());
+  std::string plt0_name = "__plt0__";
+  LDSymbol *plt0_symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+      O->getInputFile(), plt0_name, ResolveInfo::NoType, ResolveInfo::Define,
+      ResolveInfo::Local,
+      16, // size
+      0, // value
+      make<FragmentRef>(*PLT0Fragment, 0), ResolveInfo::Internal,
+      true /* isPostLTOPhase */);
+  plt0_symbol->setShouldIgnore(false);
+
+  r2 = Relocation::Create(llvm::ELF::R_X86_64_PLT32, 32,
+                          make<FragmentRef>(*P, 12), -4);
+  r2->setSymInfo(plt0_symbol->resolveInfo());
+  O->addRelocation(r2);
+  return P;
+}
+
+// Implementation of getContent() for x86_64PLTN to patch relocation index
+llvm::ArrayRef<uint8_t> x86_64PLTN::getContent() const {
+  // If content is already patched, return it
+  if (!m_PatchedContent.empty()) {
+    return m_PatchedContent;
   }
-
-  Relocation::Type getCopyRelType() const override;
-
-  // ---  GOT Support ------
-  x86_64GOT *createGOT(GOT::GOTType T, ELFObjectFile *Obj, ResolveInfo *sym);
-
-  void recordGOT(ResolveInfo *, x86_64GOT *);
-
-  void recordGOTPLT(ResolveInfo *, x86_64GOT *);
-
-  x86_64GOT *findEntryInGOT(ResolveInfo *) const;
-
-  // ---  PLT Support ------
-  x86_64PLT *createPLT(ELFObjectFile *Obj, ResolveInfo *sym);
-
-  void recordPLT(ResolveInfo *, x86_64PLT *);
-
-  x86_64PLT *findEntryInPLT(ResolveInfo *) const;
-
-  std::size_t PLTEntriesCount() const override { return m_PLTMap.size(); }
-
-  std::size_t GOTEntriesCount() const override { return m_GOTMap.size(); }
-
-  void setDefaultConfigs() override;
-
-private:
-  /// getRelEntrySize - the size in BYTE of rela type relocation
-  size_t getRelEntrySize() override { return 0; }
-
-  /// getRelaEntrySize - the size in BYTE of rela type relocation
-  size_t getRelaEntrySize() override { return 12; }
-
-  uint64_t maxBranchOffset() override { return 0; }
-
-private:
-  Relocator *m_pRelocator;
-
-  LDSymbol *m_pEndOfImage;
-  ELFDynamic *m_pDynamic;
-  llvm::DenseMap<ResolveInfo *, x86_64GOT *> m_GOTMap;
-  llvm::DenseMap<ResolveInfo *, x86_64GOT *> m_GOTPLTMap;
-  llvm::DenseMap<ResolveInfo *, x86_64PLT *> m_PLTMap;
-};
-} // namespace eld
-
-#endif
+  
+  // Copy the base template
+  m_PatchedContent.assign(x86_64_plt1, x86_64_plt1 + sizeof(x86_64_plt1));
+  
+  // Calculate the relocation index (PLT entry index in .rela.plt)
+  // PLT entries are ordered: PLT0, PLT1, PLT2, ...
+  // Relocation indices are: 0, 1, 2, ... (PLT0 has no relocation)
+  uint32_t relocation_index = 0;
+  
+  // Find this PLT entry's position in the PLT section
+  ELFSection *plt_section = getParent();
+  if (plt_section) {
+    uint32_t plt_entry_count = 0;
+    for (auto &frag : plt_section->getFragmentList()) {
+      if (frag.is(Fragment::PLT)) {
+        PLT *plt_frag = static_cast<PLT*>(&frag);
+        if (plt_frag->getType() == PLT::PLTN) {
+          if (plt_frag == this) {
+            relocation_index = plt_entry_count;
+            break;
+          }
+          plt_entry_count++;
+        }
+      }
+    }
+  }
+  
+  // Patch the relocation index into the pushq instruction at offset 7
+  // pushq instruction: 0x68 followed by 32-bit immediate (little-endian)
+  m_PatchedContent[7] = static_cast<uint8_t>(relocation_index & 0xFF);
+  m_PatchedContent[8] = static_cast<uint8_t>((relocation_index >> 8) & 0xFF);
+  m_PatchedContent[9] = static_cast<uint8_t>((relocation_index >> 16) & 0xFF);
+  m_PatchedContent[10] = static_cast<uint8_t>((relocation_index >> 24) & 0xFF);
+  
+  return m_PatchedContent;
+}
