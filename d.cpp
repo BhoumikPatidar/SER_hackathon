@@ -218,7 +218,7 @@ x86_64PLT *x86_64LDBackend::createPLT(ELFObjectFile *Obj, ResolveInfo *R) {
     std::string plt_name = "__plt_for_" + std::string(R->name());
     FragmentRef *plt_ref = &make<FragmentRef>(*P, 6);
     LDSymbol *plt_symbol = m_Module.getIRBuilder()->addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-        Obj->getInput(), plt_name, ResolveInfo::NoType, ResolveInfo::Define,
+        Obj, plt_name, ResolveInfo::NoType, ResolveInfo::Define,
         ResolveInfo::Local,
         16, // size
         6,  // value (offset to pushq instruction)
