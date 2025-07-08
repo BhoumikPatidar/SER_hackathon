@@ -7,6 +7,7 @@
 #include "eld/Readers/ELFSection.h"
 #include "eld/Readers/Relocation.h"
 #include "eld/Support/Memory.h"
+#include "llvm/Support/Casting.h"
 
 using namespace eld;
 
@@ -131,14 +132,14 @@ llvm::ArrayRef<uint8_t> x86_64PLTN::getContent() const {
     // Iterate through all fragments in the PLT section
     for (auto &frag : plt_section->getFragmentList()) {
       // Check if this is the current fragment
-      if (&frag == this) {
+      if (&frag == static_cast<const Fragment*>(this)) {
         // Found ourselves, relocation_index is correct
         break;
       }
       // Count only PLTN entries (PLT0 has no relocation entry)
-      if (frag.getKind() == Fragment::Plt) {
-        const PLT *plt_frag = static_cast<const PLT*>(&frag);
-        if (plt_frag->getType() == PLT::PLTN) {
+      if (PLT::classof(&frag)) {
+        const PLT *plt_frag = llvm::dyn_cast<const PLT>(&frag);
+        if (plt_frag && plt_frag->getType() == PLT::PLTN) {
           relocation_index++;
         }
       }
