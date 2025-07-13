@@ -1,507 +1,54 @@
-//===- x86_64Relocator.cpp-------------------------------------------------===//
+//===- x86_64ELFDynamic.cpp-----------------------------------------------===//
 // Part of the eld Project, under the BSD License
 // See https://github.com/qualcomm/eld/LICENSE.txt for license information.
 // SPDX-License-Identifier: BSD-3-Clause
 //===----------------------------------------------------------------------===//
-#include "eld/Config/GeneralOptions.h"
-#include "eld/Diagnostics/DiagnosticEngine.h"
-#include "eld/Input/ELFObjectFile.h"
-#include "eld/Support/MsgHandling.h"
-#include "eld/SymbolResolver/LDSymbol.h"
+
+#include "x86_64ELFDynamic.h"
+#include "x86_64LDBackend.h"
+#include "eld/Config/LinkerConfig.h"
 #include "eld/Target/ELFFileFormat.h"
-#include "x86_64PLT.h"
-#include "x86_64RelocationFunctions.h"
-#include "llvm/ADT/Twine.h"
-#include "llvm/BinaryFormat/ELF.h"
-#include <iostream>
 
 using namespace eld;
 
-//===--------------------------------------------------------------------===//
-// x86_64Relocator
-//===--------------------------------------------------------------------===//
-x86_64Relocator::x86_64Relocator(x86_64LDBackend &pParent,
-                                 LinkerConfig &pConfig, Module &pModule)
-    : Relocator(pConfig, pModule), m_Target(pParent) {
-  // Mark force verify bit for specified relcoations
-  if (m_Module.getPrinter()->verifyReloc() &&
-      config().options().verifyRelocList().size()) {
-    auto &list = config().options().verifyRelocList();
-    for (auto &i : x86RelocDesc) {
-      auto RelocInfo = x86_64Relocs[i.type];
-      if (list.find(RelocInfo.Name) != list.end())
-        i.forceVerify = true;
-    }
-  }
+x86_64ELFDynamic::x86_64ELFDynamic(GNULDBackend &pParent, LinkerConfig &pConfig)
+    : ELFDynamic(pParent, pConfig) {}
+
+x86_64ELFDynamic::~x86_64ELFDynamic() {}
+
+void x86_64ELFDynamic::reserveTargetEntries() {
+  // For x86_64, we don't need any target-specific dynamic entries
+  // The base ELFDynamic class handles all the standard PLT/GOT entries
 }
 
-x86_64Relocator::~x86_64Relocator() {}
-
-Relocator::Result x86_64Relocator::applyRelocation(Relocation &pRelocation) {
-  Relocation::Type type = pRelocation.type();
-
-  ResolveInfo *symInfo = pRelocation.symInfo();
-
-  if (type > x86_64_MAXRELOCS)
-    return Relocator::Unknown;
-
-  if (symInfo) {
-    LDSymbol *outSymbol = symInfo->outSymbol();
-    if (outSymbol && outSymbol->hasFragRef()) {
-      ELFSection *S = outSymbol->fragRef()->frag()->getOwningSection();
-      if (S->isDiscard() ||
-          (S->getOutputSection() && S->getOutputSection()->isDiscard())) {
-        std::lock_guard<std::mutex> relocGuard(m_RelocMutex);
-        issueUndefRef(pRelocation, *S->getInputFile(), S);
-        return Relocator::OK;
-      }
-    }
-  }
-
-  // apply the relocation
-  return x86RelocDesc[type].func(pRelocation, *this, x86RelocDesc[type]);
+void x86_64ELFDynamic::applyTargetEntries() {
+  // For x86_64, we don't need to apply any target-specific dynamic entries
+  // The base ELFDynamic class handles all the standard PLT/GOT entries
 }
 
-const char *x86_64Relocator::getName(Relocation::Type pType) const {
+//===- x86_64ELFDynamic.h-------------------------------------------------===//
+// Part of the eld Project, under the BSD License
+// See https://github.com/qualcomm/eld/LICENSE.txt for license information.
+// SPDX-License-Identifier: BSD-3-Clause
+//===----------------------------------------------------------------------===//
 
-  return x86_64Relocs[pType].Name;
-}
+#ifndef TARGET_X86_64_X86_64ELFDYNAMIC_H
+#define TARGET_X86_64_X86_64ELFDYNAMIC_H
 
-Relocator::Size x86_64Relocator::getSize(Relocation::Type pType) const {
-  return 32;
-}
+#include "eld/Target/ELFDynamic.h"
 
-// Check if the relocation is invalid
-bool x86_64Relocator::isInvalidReloc(Relocation &pReloc) const {
+namespace eld {
 
-  switch (pReloc.type()) {
-  case llvm::ELF::R_X86_64_NONE:
-  case llvm::ELF::R_X86_64_64:
-  case llvm::ELF::R_X86_64_PC32:
-  case llvm::ELF::R_X86_64_COPY:
-  case llvm::ELF::R_X86_64_32:
-  case llvm::ELF::R_X86_64_32S:
-  case llvm::ELF::R_X86_64_16:
-  case llvm::ELF::R_X86_64_PC16:
-  case llvm::ELF::R_X86_64_8:
-  case llvm::ELF::R_X86_64_PC8:
-  case llvm::ELF::R_X86_64_PC64:
-  case llvm::ELF::R_X86_64_PLT32:
-  case llvm::ELF::R_X86_64_GOTPCREL:
-  case llvm::ELF::R_X86_64_GOTPCRELX:
-  case llvm::ELF::R_X86_64_REX_GOTPCRELX:
-  case llvm::ELF::R_X86_64_TPOFF32:
-  case llvm::ELF::R_X86_64_TPOFF64:
-  case llvm::ELF::R_X86_64_GOTTPOFF:
+class x86_64ELFDynamic : public ELFDynamic {
+public:
+  x86_64ELFDynamic(GNULDBackend &pParent, LinkerConfig &pConfig);
+  ~x86_64ELFDynamic();
 
-    return false;
-  default:
-    return true; // Other Relocations are not supported as of now
-  }
-}
+private:
+  void reserveTargetEntries() override;
+  void applyTargetEntries() override;
+};
 
-void x86_64Relocator::scanRelocation(Relocation &pReloc,
-                                     eld::IRBuilder &pLinker,
-                                     ELFSection &pSection,
-                                     InputFile &pInputFile,
-                                     CopyRelocs &CopyRelocs) {
-  if (LinkerConfig::Object == config().codeGenType())
-    return;
+} // namespace eld
 
-  // If we are generating a shared library check for invalid relocations
-  if (isInvalidReloc(pReloc)) {
-    std::lock_guard<std::mutex> relocGuard(m_RelocMutex);
-    ::llvm::outs() << getName(pReloc.type()) << " not supported currently\n";
-    m_Target.getModule().setFailure(true);
-    return;
-  }
-
-  // rsym - The relocation target symbol
-  ResolveInfo *rsym = pReloc.symInfo();
-  assert(nullptr != rsym &&
-         "ResolveInfo of relocation not set while scanRelocation");
-
-  // Check if we are tracing relocations.
-  if (m_Module.getPrinter()->traceReloc()) {
-    std::lock_guard<std::mutex> relocGuard(m_RelocMutex);
-    std::string relocName = getName(pReloc.type());
-    if (config().options().traceReloc(relocName))
-      config().raise(Diag::reloc_trace)
-          << relocName << pReloc.symInfo()->name()
-          << pInputFile.getInput()->decoratedPath();
-  }
-
-  // check if we should issue undefined reference for the relocation target
-  // symbol
-  if (rsym->isUndef() || rsym->isBitCode()) {
-    std::lock_guard<std::mutex> relocGuard(m_RelocMutex);
-    if (!m_Target.canProvideSymbol(rsym)) {
-      if (m_Target.canIssueUndef(rsym)) {
-        if (rsym->visibility() != ResolveInfo::Default)
-          issueInvisibleRef(pReloc, pInputFile);
-        issueUndefRef(pReloc, pInputFile, &pSection);
-      }
-    }
-  }
-  ELFSection *section = pSection.getLink()
-                            ? pSection.getLink()
-                            : pReloc.targetRef()->frag()->getOwningSection();
-
-  if (!section->isAlloc())
-    return;
-
-  if (rsym->isLocal()) // rsym is local
-    scanLocalReloc(pInputFile, pReloc, pLinker, *section);
-  else // rsym is external
-    scanGlobalReloc(pInputFile, pReloc, pLinker, *section, CopyRelocs);
-}
-
-void x86_64Relocator::scanLocalReloc(InputFile &pInputFile, Relocation &pReloc,
-                                     eld::IRBuilder &pBuilder,
-                                     ELFSection &pSection) {
-  // rsym - The relocation target symbol
-  ResolveInfo *rsym = pReloc.symInfo();
-
-  // Special case when the linker makes a symbol local for example linker
-  // defined symbols such as _DYNAMIC
-  switch (pReloc.type()) {
-
-  default:
-    break;
-  }
-
-  if (rsym && (ResolveInfo::Hidden == rsym->visibility()))
-    return;
-}
-
-void x86_64Relocator::scanGlobalReloc(InputFile &pInputFile, Relocation &pReloc,
-                                      eld::IRBuilder &pBuilder,
-                                      ELFSection &pSection, CopyRelocs &) {
-  ELFObjectFile *Obj = llvm::dyn_cast<ELFObjectFile>(&pInputFile);
-  // rsym - The relocation target symbol
-  ResolveInfo *rsym = pReloc.symInfo();
-
-  switch (pReloc.type()) {
-  case llvm::ELF::R_X86_64_PLT32: {
-    std::lock_guard<std::mutex> relocGuard(m_RelocMutex);
-    // Absolute relocation type, symbol may needs PLT entry or
-    // dynamic relocation entry
-    if (rsym->type() == ResolveInfo::Function) {
-      // create PLT for this symbol if it does not have.
-      if (!(rsym->reserved() & ReservePLT)) {
-        m_Target.createPLT(Obj, rsym);
-        rsym->setReserved(rsym->reserved() | ReservePLT);
-      }
-    }
-    return;
-  }
-  case llvm::ELF::R_X86_64_GOTPCREL:
-  case llvm::ELF::R_X86_64_GOTPCRELX:
-  case llvm::ELF::R_X86_64_REX_GOTPCRELX: {
-    std::lock_guard<std::mutex> relocGuard(m_RelocMutex);
-    if (!(rsym->reserved() & ReserveGOT)) {
-      auto G = m_Target.createGOT(GOT::GOTType::Regular, Obj, rsym);
-      G->setValueType(GOT::SymbolValue);
-      rsym->setReserved(rsym->reserved() | ReserveGOT);
-    }
-    return;
-  }
-  case llvm::ELF::R_X86_64_GOTTPOFF: {
-    std::lock_guard<std::mutex> relocGuard(m_RelocMutex);
-    if (!(rsym->reserved() & ReserveGOT)) {
-      auto G = m_Target.createGOT(GOT::GOTType::TLS_IE, Obj, rsym);
-      G->setValueType(GOT::TLSStaticSymbolValue);
-      rsym->setReserved(rsym->reserved() | ReserveGOT);
-    }
-    return;
-  }
-
-  default:
-    break;
-
-  } // end of switch
-}
-
-void x86_64Relocator::defineSymbolforGuard(eld::IRBuilder &pBuilder,
-                                           ResolveInfo *pSym,
-                                           x86_64LDBackend &pTarget) {
-  return;
-}
-
-void x86_64Relocator::partialScanRelocation(Relocation &pReloc,
-                                            const ELFSection &pSection) {
-  pReloc.updateAddend(module());
-
-  // if we meet a section symbol
-  if (pReloc.symInfo()->type() == ResolveInfo::Section) {
-    LDSymbol *input_sym = pReloc.symInfo()->outSymbol();
-
-    // 1. update the relocation target offset
-    assert(input_sym->hasFragRef());
-    // 2. get the output ELFSection which the symbol defined in
-    ELFSection *out_sect = input_sym->fragRef()->getOutputELFSection();
-
-    ResolveInfo *sym_info = m_Module.getSectionSymbol(out_sect);
-    // set relocation target symbol to the output section symbol's resolveInfo
-    pReloc.setSymInfo(sym_info);
-  }
-}
-
-uint32_t x86_64Relocator::getNumRelocs() const { return x86_64_MAXRELOCS; }
-
-//=========================================//
-// Relocation Verifier
-//=========================================//
-template <typename T>
-Relocator::Result VerifyRelocAsNeededHelper(
-    Relocation &pReloc, T Result, const RelocationDescription &pRelocDesc,
-    DiagnosticEngine *DiagEngine, const GeneralOptions &options) {
-  uint32_t RelocType = pReloc.type();
-  auto RelocInfo = x86_64Relocs[RelocType];
-  Relocator::Result R = Relocator::OK;
-
-  Result >>= x86_64Relocs[RelocType].Shift;
-
-  if (RelocInfo.VerifyRange) {
-    if (!verifyRangeX86_64(RelocInfo, Result))
-      R = Relocator::Overflow;
-  }
-
-  if ((pRelocDesc.forceVerify) && (isTruncatedX86_64(RelocInfo, Result))) {
-    DiagEngine->raise(Diag::reloc_truncated)
-        << RelocInfo.Name << pReloc.symInfo()->name()
-        << pReloc.getTargetPath(options) << pReloc.getSourcePath(options);
-  }
-  return R;
-}
-
-template <typename T>
-Relocator::Result ApplyReloc(Relocation &pReloc, T Result,
-                             const RelocationDescription &pRelocDesc,
-                             DiagnosticEngine *DiagEngine,
-                             const GeneralOptions &options) {
-  auto RelocInfo = x86_64Relocs[pReloc.type()];
-
-  // Verify the Relocation.
-  Relocator::Result R = Relocator::OK;
-  R = VerifyRelocAsNeededHelper(pReloc, Result, pRelocDesc, DiagEngine,
-                                options);
-  if (R != Relocator::OK)
-    return R;
-
-  // Apply the relocation.
-  pReloc.target() = doRelocX86_64(RelocInfo, pReloc.target(), Result);
-  return R;
-}
-
-//=========================================//
-// Each relocation function implementation //
-//=========================================//
-// R_X86_64_NONE
-Relocator::Result eld::none(Relocation &pReloc, x86_64Relocator &pParent,
-                            RelocationDescription &pRelocDesc) {
-  return Relocator::OK;
-}
-
-Relocator::Result applyRel(Relocation &pReloc, uint32_t Result,
-                           const RelocationDescription &pRelocDesc,
-                           DiagnosticEngine *DiagEngine,
-                           const GeneralOptions &options) {
-  return ApplyReloc(pReloc, Result, pRelocDesc, DiagEngine, options);
-}
-
-Relocator::Result eld::relocAbs(Relocation &pReloc, x86_64Relocator &pParent,
-                                RelocationDescription &pRelocDesc) {
-  DiagnosticEngine *DiagEngine = pParent.config().getDiagEngine();
-  ResolveInfo *rsym = pReloc.symInfo();
-  Relocator::Address S = pReloc.symValue(pParent.module());
-  Relocator::DWord A = pReloc.addend();
-  const GeneralOptions &options = pParent.config().options();
-  // For absolute relocations, and If we are building a static executable and if
-  // the symbol is a weak undefined symbol, it should still use the undefined
-  // symbol value which is 0. For non absolute relocations, the call is set to a
-  // symbol defined by the linker which returns back to the caller.
-  if (rsym && rsym->isWeakUndef() &&
-      (pParent.config().codeGenType() == LinkerConfig::Exec)) {
-    S = 0;
-    return ApplyReloc(pReloc, S + A, pRelocDesc, DiagEngine, options);
-  }
-
-  // if the flag of target section is not ALLOC, we eprform only static
-  // relocation.
-  if (!pReloc.targetRef()->getOutputELFSection()->isAlloc()) {
-    return ApplyReloc(pReloc, S + A, pRelocDesc, DiagEngine, options);
-  }
-
-  // FIXME PLT STUFF
-  //  if (rsym && rsym->reserved() & Relocator::ReservePLT)
-  //    S =
-  //    pParent.getTarget().findEntryInPLT(rsym)->getAddr(config().getDiagEngine());
-
-  return ApplyReloc(pReloc, S + A, pRelocDesc, DiagEngine, options);
-}
-
-Relocator::Result eld::relocPCREL(Relocation &pReloc, x86_64Relocator &pParent,
-                                  RelocationDescription &pRelocDesc) {
-  // ResolveInfo *rsym = pReloc.symInfo();
-  // std::cout << "pcrel" << std::endl;
-  uint32_t Result;
-  DiagnosticEngine *DiagEngine = pParent.config().getDiagEngine();
-  Relocator::Address S = pReloc.symValue(pParent.module());
-  Relocator::DWord A = pReloc.addend();
-  Relocator::DWord P = pReloc.place(pParent.module());
-
-  FragmentRef *target_fragref = pReloc.targetRef();
-  Fragment *target_frag = target_fragref->frag();
-  ELFSection *target_sect = target_frag->getOutputELFSection();
-  Result = S + A - P;
-  const GeneralOptions &options = pParent.config().options();
-  // for relocs inside non ALLOC, just apply
-  if (!target_sect->isAlloc()) {
-    return applyRel(pReloc, Result, pRelocDesc, DiagEngine, options);
-  }
-
-  // FIXME PLT STUFF
-  //  if (!rsym->isLocal()) {
-  //    if (rsym->reserved() & Relocator::ReservePLT) {
-  //      S =
-  //      pParent.getTarget().findEntryInPLT(rsym)->getAddr(config().getDiagEngine());
-  //      Result = S + A - P;
-  //      applyRel(pReloc, Result, pRelocDesc, DiagEngine);
-  //      return Relocator::OK;
-  //    }
-  //  }
-
-  return applyRel(pReloc, Result, pRelocDesc, DiagEngine, options);
-}
-
-Relocator::Result eld::unsupport(Relocation &pReloc, x86_64Relocator &pParent,
-                                 RelocationDescription &pRelocDesc) {
-  return x86_64Relocator::Unsupport;
-}
-
-Relocator::Result eld::relocPLT32(Relocation &pReloc, x86_64Relocator &pParent,
-                                  RelocationDescription &pRelocDesc) {
-  uint32_t Result;
-  DiagnosticEngine *DiagEngine = pParent.config().getDiagEngine();
-  ResolveInfo *rsym = pReloc.symInfo();
-  Relocator::Address S = pReloc.symValue(pParent.module());
-  Relocator::DWord A = pReloc.addend();
-  Relocator::DWord P = pReloc.place(pParent.module());
-  const GeneralOptions &options = pParent.config().options();
-
-  FragmentRef *target_fragref = pReloc.targetRef();
-  Fragment *target_frag = target_fragref->frag();
-  ELFSection *target_sect = target_frag->getOutputELFSection();
-  
-  // for relocs inside non ALLOC, just apply
-  if (!target_sect->isAlloc()) {
-    Result = S + A - P;
-    return applyRel(pReloc, Result, pRelocDesc, DiagEngine, options);
-  }
-
-  // CRITICAL FIX: Redirect to PLT entry if it exists
-  if (rsym && (rsym->reserved() & ReservePLT)) {
-    x86_64PLT *plt_entry = pParent.getTarget().findEntryInPLT(rsym);
-    if (plt_entry) {
-      S = plt_entry->getAddr(DiagEngine);
-    }
-  }
-
-  Result = S + A - P;
-  return applyRel(pReloc, Result, pRelocDesc, DiagEngine, options);
-}
-
-Relocator::Result eld::relocGOTPCREL(Relocation &pReloc,
-                                     x86_64Relocator &pParent,
-                                     RelocationDescription &pRelocDesc) {
-  DiagnosticEngine *DiagEngine = pParent.config().getDiagEngine();
-  uint64_t Result;
-  ResolveInfo *symInfo = pReloc.symInfo();
-
-  // llvm::errs()
-  //     << "GOTPCREL DEBUG: Symbol=" << (symInfo ? symInfo->name() : "NULL")
-  //     << "hasFragRef"
-  //     << (symInfo && symInfo->outSymbol() ?
-  //     symInfo->outSymbol()->hasFragRef()
-  //                                         : false)
-  //     << "symbolValue"
-  //     << (symInfo && symInfo->outSymbol() ? symInfo->outSymbol()->value() :
-  //     0)
-  //     << "\n";
-
-  Relocator::Address S = pReloc.symValue(pParent.module());
-  Relocator::DWord A = pReloc.addend();
-  Relocator::DWord P = pReloc.place(pParent.module());
-  const GeneralOptions &options = pParent.config().options();
-
-  // llvm::errs() << "GOTPCRELX CALC: S=" << llvm::format_hex(S, 10)
-  //              << " A=" << llvm::format_hex(A, 10)
-  //              << " P=" << llvm::format_hex(P, 10) << "\n";
-
-  FragmentRef *target_fragref = pReloc.targetRef();
-  Fragment *target_frag = target_fragref->frag();
-  ELFSection *target_sect = target_frag->getOutputELFSection();
-  auto got_result = pParent.getTarget().findEntryInGOT(symInfo);
-
-  Result = got_result->getAddr(DiagEngine) + A - P;
-  // llvm::errs() << "GOTPCRELX RESULT: " << llvm::format_hex(Result, 10) <<
-  // "\n";
-  if (!target_sect->isAlloc()) {
-    return applyRel(pReloc, Result, pRelocDesc, DiagEngine, options);
-  }
-  return applyRel(pReloc, Result, pRelocDesc, DiagEngine, options);
-}
-
-Relocator::Result eld::relocTPOFF32(Relocation &pReloc, x86_64Relocator &pParent,
-                                    RelocationDescription &pRelocDesc) {
-  DiagnosticEngine *DiagEngine = pParent.config().getDiagEngine();
-  Relocator::Address S = pParent.getSymValue(&pReloc);
-  Relocator::DWord A = pReloc.addend();
-  const GeneralOptions &options = pParent.config().options();
-  
-  // TPOFF32 formula: S + A - tp_offset
-  // For static linking, tp_offset is the TLS template size
-  uint64_t tp_offset = GNULDBackend::getTLSTemplateSize();
-  uint32_t Result = S + A - tp_offset;
-  
-  return ApplyReloc(pReloc, Result, pRelocDesc, DiagEngine, options);
-}
-
-Relocator::Result eld::relocTPOFF64(Relocation &pReloc, x86_64Relocator &pParent,
-                                    RelocationDescription &pRelocDesc) {
-  DiagnosticEngine *DiagEngine = pParent.config().getDiagEngine();
-  Relocator::Address S = pParent.getSymValue(&pReloc);
-  Relocator::DWord A = pReloc.addend();
-  const GeneralOptions &options = pParent.config().options();
-  
-  // TPOFF64 formula: S + A - tp_offset (same as TPOFF32 but 64-bit result)
-  // For static linking, tp_offset is the TLS template size
-  uint64_t tp_offset = GNULDBackend::getTLSTemplateSize();
-  uint64_t Result = S + A - tp_offset;
-  
-  return ApplyReloc(pReloc, Result, pRelocDesc, DiagEngine, options);
-}
-
-Relocator::Result eld::relocGOTPOFF(Relocation &pReloc, x86_64Relocator &pParent,
-                                    RelocationDescription &pRelocDesc) {
-  DiagnosticEngine *DiagEngine = pParent.config().getDiagEngine();
-  ResolveInfo *symInfo = pReloc.symInfo();
-  Relocator::DWord A = pReloc.addend();
-  Relocator::DWord P = pReloc.place(pParent.module());
-  const GeneralOptions &options = pParent.config().options();
-
-  // GOTTPOFF formula: G + A - P
-  // G = Address of GOT entry containing thread pointer offset
-  auto got_result = pParent.getTarget().findEntryInGOT(symInfo);
-  if (!got_result) {
-    // This should not happen if scanning was done correctly
-    DiagEngine->raise(Diag::result_badreloc) << "GOTTPOFF without GOT entry";
-    return Relocator::BadReloc;
-  }
-  
-  uint64_t G = got_result->getAddr(DiagEngine);
-  uint64_t Result = G + A - P;
-  
-  return ApplyReloc(pReloc, Result, pRelocDesc, DiagEngine, options);
-}
+#endif
