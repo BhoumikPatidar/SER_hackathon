@@ -1,54 +1,47 @@
-//===- x86_64ELFDynamic.cpp-----------------------------------------------===//
-// Part of the eld Project, under the BSD License
-// See https://github.com/qualcomm/eld/LICENSE.txt for license information.
-// SPDX-License-Identifier: BSD-3-Clause
-//===----------------------------------------------------------------------===//
+// Test for GOTPCREL relocation in static linking
+// This test verifies that global variable access through GOT works correctly
 
-#include "x86_64ELFDynamic.h"
-#include "x86_64LDBackend.h"
-#include "eld/Config/LinkerConfig.h"
-#include "eld/Target/ELFFileFormat.h"
+int global_var = 42;
 
-using namespace eld;
-
-x86_64ELFDynamic::x86_64ELFDynamic(GNULDBackend &pParent, LinkerConfig &pConfig)
-    : ELFDynamic(pParent, pConfig) {}
-
-x86_64ELFDynamic::~x86_64ELFDynamic() {}
-
-void x86_64ELFDynamic::reserveTargetEntries() {
-  // For x86_64, we don't need any target-specific dynamic entries
-  // The base ELFDynamic class handles all the standard PLT/GOT entries
+void _start() {
+  // Access global variable through GOTPCREL relocation
+  // This will generate R_X86_64_GOTPCREL relocation
+  int *ptr;
+  asm (
+    "movq global_var@GOTPCREL(%%rip), %0\n"
+    : "=r" (ptr)
+    :
+    : 
+  );
+  
+  // Load the value from the GOT entry
+  int value = *ptr;
+  
+  // Exit with the value from global_var (should be 42)
+  asm (
+    "movq $60, %%rax\n"
+    "movq %0, %%rdi\n"
+    "syscall\n"
+    :
+    : "r" ((long)value)
+    : "%rax", "%rdi"
+  );
 }
 
-void x86_64ELFDynamic::applyTargetEntries() {
-  // For x86_64, we don't need to apply any target-specific dynamic entries
-  // The base ELFDynamic class handles all the standard PLT/GOT entries
-}
+#---GOTPCREL.test----------------- Executable --------------------#
 
-//===- x86_64ELFDynamic.h-------------------------------------------------===//
-// Part of the eld Project, under the BSD License
-// See https://github.com/qualcomm/eld/LICENSE.txt for license information.
-// SPDX-License-Identifier: BSD-3-Clause
-//===----------------------------------------------------------------------===//
+BEGIN_COMMENT
+# Test GOTPCREL relocation support in eld
+# This test verifies that eld correctly handles R_X86_64_GOTPCREL relocations
+# for global variable access through the Global Offset Table.
+# The test uses a global variable accessed via GOTPCREL and verifies
+# that the GOT entry is properly created and the relocation is resolved.
+END_COMMENT
 
-#ifndef TARGET_X86_64_X86_64ELFDYNAMIC_H
-#define TARGET_X86_64_X86_64ELFDYNAMIC_H
-
-#include "eld/Target/ELFDynamic.h"
-
-namespace eld {
-
-class x86_64ELFDynamic : public ELFDynamic {
-public:
-  x86_64ELFDynamic(GNULDBackend &pParent, LinkerConfig &pConfig);
-  ~x86_64ELFDynamic();
-
-private:
-  void reserveTargetEntries() override;
-  void applyTargetEntries() override;
-};
-
-} // namespace eld
-
-#endif
+#START_TEST
+RUN: %clang %clangopts -c %p/Inputs/gotpcrel.c -o %t.gotpcrel.o
+RUN: %link %linkopts -o %t.gotpcrel.out %t.gotpcrel.o --image-base=0x400000
+RUN: %t.gotpcrel.out; echo $? > %t.code
+RUN: %filecheck --input-file=%t.code %s --check-prefix=EXITCODE
+EXITCODE: 42
+#END_TEST
