@@ -89,8 +89,10 @@ bool x86_64Relocator::isInvalidReloc(Relocation &pReloc) const {
   case llvm::ELF::R_X86_64_GOTPCREL:
   case llvm::ELF::R_X86_64_GOTPCRELX:
   case llvm::ELF::R_X86_64_REX_GOTPCRELX:
+  case llvm::ELF::R_X86_64_GOT32:
   case llvm::ELF::R_X86_64_GOTTPOFF:
   case llvm::ELF::R_X86_64_TPOFF32:
+  case llvm::ELF::R_X86_64_DTPOFF32:
     return false;
   default:
     return true; // Other Relocations are not supported as of now
@@ -192,11 +194,16 @@ void x86_64Relocator::scanGlobalReloc(InputFile &pInputFile, Relocation &pReloc,
     }
     return;
   }
+  case llvm::ELF::R_X86_64_GOT32:
   case llvm::ELF::R_X86_64_GOTPCREL:
   case llvm::ELF::R_X86_64_GOTPCRELX:
   case llvm::ELF::R_X86_64_REX_GOTPCRELX: {
     if (!(rsym->reserved() & ReserveGOT)) {
       std::lock_guard<std::mutex> relocGuard(m_RelocMutex);
+      // Ensure dynamic sections are initialized for GOT creation
+      if (!Obj->getGOT()) {
+        m_Target.initDynamicSections(*Obj);
+      }
       x86_64GOT *gotEntry =
           m_Target.createGOT(GOT::GOTType::Regular, Obj, rsym);
       gotEntry->setValueType(GOT::SymbolValue);
@@ -206,6 +213,10 @@ void x86_64Relocator::scanGlobalReloc(InputFile &pInputFile, Relocation &pReloc,
   case llvm::ELF::R_X86_64_GOTTPOFF: {
     if (!(rsym->reserved() & ReserveGOT)) {
       std::lock_guard<std::mutex> relocGuard(m_RelocMutex);
+      // Ensure dynamic sections are initialized for GOT creation
+      if (!Obj->getGOT()) {
+        m_Target.initDynamicSections(*Obj);
+      }
       x86_64GOT *gotEntry =
           m_Target.createGOT(GOT::GOTType::TLS_IE, Obj, rsym);
       gotEntry->setValueType(GOT::TLSStaticSymbolValue);
@@ -427,6 +438,7 @@ Relocator::Result eld::relocTPOFF32(Relocation &pReloc, x86_64Relocator &pParent
   return applyRel(pReloc, Result, pRelocDesc, DiagEngine, options);
 }
 
+
 Relocator::Result eld::relocGOTTPOFF(Relocation &pReloc, x86_64Relocator &pParent,
                                      RelocationDescription &pRelocDesc) {
   DiagnosticEngine *DiagEngine = pParent.config().getDiagEngine();
@@ -443,3 +455,43 @@ Relocator::Result eld::relocGOTTPOFF(Relocation &pReloc, x86_64Relocator &pParen
   
   return applyRel(pReloc, Result, pRelocDesc, DiagEngine, options);
 }
+
+Relocator::Result eld::relocDTPOFF32(Relocation &pReloc, x86_64Relocator &pParent,
+                                     RelocationDescription &pRelocDesc) {
+  DiagnosticEngine *DiagEngine = pParent.config().getDiagEngine();
+  const GeneralOptions &options = pParent.config().options();
+  
+  // In static linking: DTPOFF32 = TPOFF32 (S + A - TLS_Template_Size)
+  // In dynamic linking: DTPOFF32 = S + A (relative to DTV)
+  uint64_t S = pParent.getSymValue(&pReloc);
+  Relocator::DWord A = pReloc.addend();
+  
+  int64_t Result;
+  if (pParent.config().isCodeStatic()) {
+    // Static linking: convert to Thread Pointer offset
+    uint64_t TLSTemplateSize = pParent.getTarget().getTLSTemplateSize();
+    Result = static_cast<int64_t>(S + A - TLSTemplateSize);
+  } else {
+    // Dynamic linking: relative to Dynamic Thread Vector
+    Result = static_cast<int64_t>(S + A);
+  }
+  
+  return applyRel(pReloc, Result, pRelocDesc, DiagEngine, options);
+}
+
+Relocator::Result eld::relocGOT32(Relocation &pReloc, x86_64Relocator &pParent,
+                                  RelocationDescription &pRelocDesc) {
+  DiagnosticEngine *DiagEngine = pParent.config().getDiagEngine();
+  ResolveInfo *symInfo = pReloc.symInfo();
+  const GeneralOptions &options = pParent.config().options();
+
+  Relocator::DWord A = pReloc.addend();
+  
+  // Calculate GOT32: GOT[S] + A
+  x86_64GOT *gotEntry = pParent.getTarget().findEntryInGOT(symInfo);
+  uint32_t Result = static_cast<uint32_t>(gotEntry->getAddr(DiagEngine) + A);
+
+  return applyRel(pReloc, Result, pRelocDesc, DiagEngine, options);
+}
+
+
