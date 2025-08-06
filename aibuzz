@@ -1,0 +1,51 @@
+UI Variance: Windows apps must render correctly across resolutions (1080p–4K), DPIs (100%–200%), themes (light/dark/high-contrast) and languages.
+
+Gap in CI: Traditional pipelines catch crashes but miss pixel-level defects—low contrast, overlapping controls, truncated text.
+
+Manual Review Limitations: Human QA is slow, error-prone, and doesn’t scale to dozens of UI variants.
+
+On-Device AI Agent: Uses edge-optimized OCR, object detection, rule checks and a 1B-param LLM—no cloud—to spot and explain visual/accessibility failures in under a minute.
+
+Seamless CI Plug-In: Integrates into existing builds, keeps all data local, and auto-fails on critical regressions with actionable, prioritized fix suggestions.
+
+Detailed Problem Statement
+Modern Windows applications must accommodate an ever-growing matrix of display parameters—including high-resolution monitors, varied DPI settings, multiple color themes (including accessibility modes), and localized text layouts. While existing continuous-integration tools effectively catch build failures and functional regressions, they remain blind to visual and accessibility defects that only manifest at the pixel level. Issues such as insufficient contrast between text and background, UI elements that overlap or truncate under different languages, and controls that fall below minimum tappable or focusable sizes can all slip through automated pipelines. Relying on manual QA for each variant is unsustainable: it demands significant human effort, yields inconsistent coverage, delays feedback loops, and risks exposing proprietary UI assets to third-party services. Without an on-device, automated solution, development teams face slower time-to-fix, higher maintenance overhead, and potential accessibility compliance failures.
+
+Proposed Solution
+Snap-Tester: An On-Device, AI-Powered Visual & Accessibility QA Agent
+
+Automated Screenshot Capture
+
+Integrate with PowerShell UIA, WinAppDriver, or FlaUI to programmatically navigate key application flows under each resolution, DPI, theme, and language variant.
+
+Save standardized screenshots to a local folder structure for downstream processing.
+
+AI-Powered Audit Pipeline
+
+OCR Module (TrOCR ONNX): Extract all text regions and bounding boxes in real time on Hexagon NPU, ensuring full coverage of visible UI strings.
+
+Control Detection (Conditional-DETR ONNX): Locate interactive elements (buttons, input fields, icons) with an efficient SSD-style detector, compiled for on-device inference.
+
+Rule-Based Accessibility Checks:
+
+Compute WCAG contrast ratios (minimum 4.5:1) for each text vs. background pair.
+
+Verify control dimensions meet a 48 × 48 dp tappable/focusable threshold.
+
+Actionable Guidance via On-Device LLM
+
+Use a 1B-parameter instruction-tuned model (PLaMo ONNX → QNN) to convert raw rule failures into concise, prioritized fix suggestions (e.g. “Increase button text to white to achieve 7:1 contrast”).
+
+CI Integration & Reporting
+
+Package the entire workflow as a native CI step on Snapdragon X Elite Copilot+ PCs (or similar edge-AI devices).
+
+Generate comprehensive JSON and HTML reports that include annotated screenshots, detected failures, and LLM-driven remediation guidance.
+
+Fail the build if critical regressions are detected, providing developers with rapid, private feedback.
+
+Agentic Orchestration
+
+Leverage primitives from the quic/efficient-transformers library to coordinate multi-step QA flows, maintain state across screens, and dynamically adapt to new rule checks—all without any cloud dependency.
+
+This on-device, agentic AI solution shifts visual and accessibility QA left in the development cycle, delivering sub-minute, private, and scalable feedback that keeps pace with modern Windows UI complexity.
