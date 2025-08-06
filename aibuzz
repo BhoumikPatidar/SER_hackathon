@@ -49,3 +49,13 @@ Agentic Orchestration
 Leverage primitives from the quic/efficient-transformers library to coordinate multi-step QA flows, maintain state across screens, and dynamically adapt to new rule checks—all without any cloud dependency.
 
 This on-device, agentic AI solution shifts visual and accessibility QA left in the development cycle, delivering sub-minute, private, and scalable feedback that keeps pace with modern Windows UI complexity.
+Snap-Tester brings AI-driven visual and accessibility checks directly into your CI pipeline—no cloud needed. It combines on-device OCR, object detection, rule-based audits, and a lightweight LLM to catch UI regressions across resolutions, DPI settings, themes, and languages. Reports are generated automatically with clear, prioritized fix suggestions, keeping your workflow private and seamless.
+
+
+
+
+
+
+
+
+
