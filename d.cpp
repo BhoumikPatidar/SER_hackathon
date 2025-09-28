@@ -1,35 +1,35 @@
 // In lib/Target/x86_64/x86_64GOT.h
-#include "eld/Core/Module.h"
-
-class x86_64GOTPLT0 : public x86_64GOT {
+class x86_64GOTPLTN : public x86_64GOT {
 public:
-  x86_64GOTPLT0(ELFSection *O, Module *M)
-      : x86_64GOT(GOT::GOTPLT0, O, nullptr, /*Align=*/8, /*Size=*/24),
-        m_Module(M) {}
+  x86_64GOTPLTN(ELFSection *O, ResolveInfo *R)
+      : x86_64GOT(GOT::GOTPLTN, O, R, /*Align=*/8, /*Size=*/8), 
+        m_PLTEntry(nullptr) {}
 
   x86_64GOT *getFirst() override { return this; }
   x86_64GOT *getNext() override { return nullptr; }
 
-  // Override getContent to return .dynamic address for first 8 bytes
+  void setPLTEntry(Fragment *plt) { m_PLTEntry = plt; }
+
+  // Override getContent to return PLT+6 address (second instruction)
   virtual llvm::ArrayRef<uint8_t> getContent() const override {
-    memset(Value, 0, sizeof(Value));
+    Value = 0;
     
-    // Get .dynamic section address for GOTPLT[0]
-    if (m_Module) {
-      ELFSection *dynSection = m_Module->getSection(".dynamic");
-      if (dynSection) {
-        uint64_t dynAddr = dynSection->addr();
-        memcpy(Value, &dynAddr, sizeof(uint64_t));
+    // If we have a PLT entry, point to its second instruction (offset 6)
+    // This is the "push" instruction in the PLT stub
+    if (m_PLTEntry) {
+      ELFSection *pltSection = m_PLTEntry->getOwningSection();
+      if (pltSection) {
+        Value = pltSection->addr() + m_PLTEntry->getOffset() + 6;
       }
     }
     
-    // GOTPLT[1] and GOTPLT[2] remain 0 (filled by dynamic linker)
-    return llvm::ArrayRef(Value, sizeof(Value));
+    return llvm::ArrayRef(reinterpret_cast<const uint8_t *>(&Value),
+                          sizeof(Value));
   }
 
-  static x86_64GOTPLT0 *Create(ELFSection *O, Module *M);
+  static x86_64GOTPLTN *Create(ELFSection *O, ResolveInfo *R);
 
 private:
-  Module *m_Module;
-  mutable uint8_t Value[24];  // 3 x 8-byte entries
+  Fragment *m_PLTEntry;
+  mutable uint64_t Value;
 };
