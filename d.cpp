@@ -1,39 +1,40 @@
-// In lib/Target/x86_64/x86_64GOT.cpp
-#include "x86_64GOT.h"
-#include "eld/Core/Module.h"
-#include "eld/Readers/ELFSection.h"
-#include "eld/Readers/Relocation.h"
-#include "eld/SymbolResolver/IRBuilder.h"
-
-using namespace eld;
-
-x86_64GOTPLT0 *x86_64GOTPLT0::Create(IRBuilder &I, ELFSection *O) {
-  x86_64GOTPLT0 *G = make<x86_64GOTPLT0>(O, nullptr);
-  
-  // Get the module from IRBuilder
-  Module &module = I.getModule();
-  
-  // Get the .dynamic section
-  ELFSection *dynamicSection = module.getSection(".dynamic");
-  if (dynamicSection && dynamicSection->hasSectionData()) {
-    // Get first fragment - dereference iterator to get Fragment*
-    Fragment *firstFrag = *(dynamicSection->getFragmentList().begin());
+// In lib/Target/x86_64/x86_64LDBackend.cpp
+bool x86_64LDBackend::finalizeScanRelocations() {
+  Fragment *frag = nullptr;
+  if (auto *GOTPLT = getGOTPLT())
+    if (GOTPLT->hasSectionData())
+      frag = *GOTPLT->getFragmentList().begin();
+      
+  if (frag) {
+    // Create relocation for GOTPLT0[0] to point to .dynamic section
+    ELFSection *dynamicSection = m_Module.getSection(".dynamic");
+    if (dynamicSection) {
+      // Get or create the section symbol for .dynamic
+      ResolveInfo *dynamicSectionSymbol = m_Module.getSectionSymbol(dynamicSection);
+      
+      if (!dynamicSectionSymbol) {
+        // Section symbol doesn't exist yet, create it
+        InputFile *I = m_Module.getInternalInput(Module::InternalInputType::Sections);
+        dynamicSectionSymbol = m_Module.getNamePool().createSymbol(
+            I, ".dynamic", false, ResolveInfo::Section, ResolveInfo::Define,
+            ResolveInfo::Local, 0x0, ResolveInfo::Default, true);
+        
+        LDSymbol *sym = make<LDSymbol>(dynamicSectionSymbol, false);
+        dynamicSectionSymbol->setOutSymbol(sym);
+        
+        // Section symbol will be properly set up later when the section has fragments
+        m_Module.recordSectionSymbol(dynamicSection, dynamicSectionSymbol);
+      }
+      
+      // Create relocation to patch GOTPLT0[0] with .dynamic address
+      Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_64, 64,
+                                          make<FragmentRef>(*frag, 0), 0);
+      r1->setSymInfo(dynamicSectionSymbol);
+      getGOTPLT()->addRelocation(r1);
+    }
     
-    // Create a local symbol pointing to .dynamic section
-    std::string symName = "__dynamic_for_gotplt0__";
-    LDSymbol *symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
-        O->getInputFile(), symName, ResolveInfo::NoType, ResolveInfo::Define,
-        ResolveInfo::Local, 8, 0, 
-        make<FragmentRef>(*firstFrag, 0),  // Dereference Fragment* to Fragment&
-        ResolveInfo::Default, true);
-    symbol->setShouldIgnore(false);
-    
-    // Create relocation to patch GOTPLT0[0] with .dynamic address
-    Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_64, 64, 
-                                        make<FragmentRef>(*G, 0), 0);
-    r1->setSymInfo(symbol->resolveInfo());
-    O->addRelocation(r1);
+    defineGOTSymbol(*frag);
   }
   
-  return G;
+  return true;
 }
