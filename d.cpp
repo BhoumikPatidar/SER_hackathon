@@ -1,35 +1,34 @@
-// In lib/Target/x86_64/x86_64GOT.h
-class x86_64GOTPLTN : public x86_64GOT {
+// In lib/Target/x86_64/x86_64PLT.h
+
+class x86_64PLTN : public x86_64PLT {
 public:
-  x86_64GOTPLTN(ELFSection *O, ResolveInfo *R)
-      : x86_64GOT(GOT::GOTPLTN, O, R, /*Align=*/8, /*Size=*/8), 
-        m_PLTEntry(nullptr) {}
+  x86_64PLTN(x86_64GOT *G, eld::IRBuilder &I, ELFSection *P, ResolveInfo *R,
+             uint32_t Align, uint32_t Size)
+      : x86_64PLT(PLT::PLTN, I, G, P, R, Align, Size), m_RelocIndex(0) {}
 
-  x86_64GOT *getFirst() override { return this; }
-  x86_64GOT *getNext() override { return nullptr; }
+  virtual ~x86_64PLTN() {}
 
-  void setPLTEntry(Fragment *plt) { m_PLTEntry = plt; }
-
-  // Override getContent to return PLT+6 address (second instruction)
+  // Set the relocation index for this PLT entry
+  void setRelocIndex(uint32_t index) { m_RelocIndex = index; }
+  
   virtual llvm::ArrayRef<uint8_t> getContent() const override {
-    Value = 0;
+    // Copy the template and fill in the relocation index
+    memcpy(m_Content, x86_64_plt1, sizeof(x86_64_plt1));
     
-    // If we have a PLT entry, point to its second instruction (offset 6)
-    // This is the "push" instruction in the PLT stub
-    if (m_PLTEntry) {
-      ELFSection *pltSection = m_PLTEntry->getOwningSection();
-      if (pltSection) {
-        Value = pltSection->addr() + m_PLTEntry->getOffset() + 6;
-      }
-    }
+    // Fill in the relocation index at offset 7 (little-endian 32-bit value)
+    uint32_t index = m_RelocIndex;
+    m_Content[7] = index & 0xFF;
+    m_Content[8] = (index >> 8) & 0xFF;
+    m_Content[9] = (index >> 16) & 0xFF;
+    m_Content[10] = (index >> 24) & 0xFF;
     
-    return llvm::ArrayRef(reinterpret_cast<const uint8_t *>(&Value),
-                          sizeof(Value));
+    return llvm::ArrayRef<uint8_t>(m_Content, sizeof(m_Content));
   }
 
-  static x86_64GOTPLTN *Create(ELFSection *O, ResolveInfo *R);
+  static x86_64PLTN *Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
+                            ResolveInfo *R, bool HasNow);
 
 private:
-  Fragment *m_PLTEntry;
-  mutable uint64_t Value;
+  uint32_t m_RelocIndex;
+  mutable uint8_t m_Content[16];  // Mutable buffer for PLT stub content
 };
