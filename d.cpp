@@ -1,34 +1,85 @@
-// In lib/Target/x86_64/x86_64PLT.h
+// In lib/Target/x86_64/x86_64PLT.cpp
 
-class x86_64PLTN : public x86_64PLT {
-public:
-  x86_64PLTN(x86_64GOT *G, eld::IRBuilder &I, ELFSection *P, ResolveInfo *R,
-             uint32_t Align, uint32_t Size)
-      : x86_64PLT(PLT::PLTN, I, G, P, R, Align, Size), m_RelocIndex(0) {}
+x86_64PLT0 *x86_64PLT0::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
+                               ResolveInfo *R, bool BindNow) {
+  x86_64PLT0 *P = make<x86_64PLT0>(G, I, O, R, 16, 16);
+  O->addFragmentAndUpdateSize(P);
 
-  virtual ~x86_64PLTN() {}
+  llvm::outs() << "PLT0 created at: " << P << "\n";
 
-  // Set the relocation index for this PLT entry
-  void setRelocIndex(uint32_t index) { m_RelocIndex = index; }
+  std::string name = "__gotplt0__";
   
-  virtual llvm::ArrayRef<uint8_t> getContent() const override {
-    // Copy the template and fill in the relocation index
-    memcpy(m_Content, x86_64_plt1, sizeof(x86_64_plt1));
-    
-    // Fill in the relocation index at offset 7 (little-endian 32-bit value)
-    uint32_t index = m_RelocIndex;
-    m_Content[7] = index & 0xFF;
-    m_Content[8] = (index >> 8) & 0xFF;
-    m_Content[9] = (index >> 16) & 0xFF;
-    m_Content[10] = (index >> 24) & 0xFF;
-    
-    return llvm::ArrayRef<uint8_t>(m_Content, sizeof(m_Content));
+  // Check if the symbol already exists to avoid duplicate definition
+  LDSymbol *existingSymbol = I.getModule().getNamePool().findSymbol(name);
+  if (existingSymbol && !existingSymbol->shouldIgnore()) {
+    // Symbol already exists, just use it for relocations
+    LDSymbol *symbol = existingSymbol;
+  } else {
+    // Create the symbol only if it doesn't exist
+    LDSymbol *symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+        O->getInputFile(), name, ResolveInfo::NoType, ResolveInfo::Define,
+        ResolveInfo::Local, 8, 0, make<FragmentRef>(*G, 0), ResolveInfo::Default,
+        true /* isPostLTOPhase */);
+    symbol->setShouldIgnore(false);
   }
 
-  static x86_64PLTN *Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
-                            ResolveInfo *R, bool HasNow);
+  // Always create relocations regardless of symbol existence
+  Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                      make<FragmentRef>(*P, 2), 4);
+  r1->setSymInfo(existingSymbol ? existingSymbol->resolveInfo() : symbol->resolveInfo());
+  O->addRelocation(r1);
 
-private:
-  uint32_t m_RelocIndex;
-  mutable uint8_t m_Content[16];  // Mutable buffer for PLT stub content
-};
+  Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                      make<FragmentRef>(*P, 8), 12);
+  r2->setSymInfo(existingSymbol ? existingSymbol->resolveInfo() : symbol->resolveInfo());
+  O->addRelocation(r2);
+
+  return P;
+}
+
+x86_64PLTN *x86_64PLTN::Create(eld::IRBuilder &I, x86_64GOT *G, ELFSection *O,
+                               ResolveInfo *R, bool BindNow) {
+  x86_64PLTN *P = make<x86_64PLTN>(G, I, O, R, 16, 16);
+  O->addFragmentAndUpdateSize(P);
+
+  if (x86_64GOTPLTN *gotplt = llvm::dyn_cast<x86_64GOTPLTN>(G)) {
+    gotplt->setPLTEntry(P);
+  }
+
+  std::string name = "__gotpltn_for_" + std::string(R->name());
+  LDSymbol *symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+      O->getInputFile(), name, ResolveInfo::NoType, ResolveInfo::Define,
+      ResolveInfo::Local, 8, 0, make<FragmentRef>(*G, 0), ResolveInfo::Default,
+      true);
+  symbol->setShouldIgnore(false);
+
+  Relocation *r1 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                      make<FragmentRef>(*P, 2), -4);
+  r1->setSymInfo(symbol->resolveInfo());
+  O->addRelocation(r1);
+
+  if (!BindNow) {
+    Fragment *PLT0 = *(O->getFragmentList().begin());
+    llvm::outs() << "x86_64PLTN::Create PLT0 offset " << PLT0->getOffset() << "\n";
+    
+    // Use a unique name for PLT0 symbol or check if it exists
+    std::string plt0_name = "__plt0__";
+    LDSymbol *plt0_symbol = I.getModule().getNamePool().findSymbol(plt0_name);
+    
+    if (!plt0_symbol || plt0_symbol->shouldIgnore()) {
+      // Create the symbol only if it doesn't exist
+      plt0_symbol = I.addSymbol<IRBuilder::Force, IRBuilder::Resolve>(
+          O->getInputFile(), plt0_name, ResolveInfo::NoType, ResolveInfo::Define,
+          ResolveInfo::Local, 16, 0, make<FragmentRef>(*PLT0, 0),
+          ResolveInfo::Default, true);
+      plt0_symbol->setShouldIgnore(false);
+    }
+
+    Relocation *r2 = Relocation::Create(llvm::ELF::R_X86_64_PC32, 32,
+                                        make<FragmentRef>(*P, 12), -4);
+    r2->setSymInfo(plt0_symbol->resolveInfo());
+    O->addRelocation(r2);
+  }
+
+  return P;
+}
